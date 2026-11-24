@@ -267,12 +267,18 @@ function render() {
 // выделение без перерисовки списка (ничего не прыгает)
 // фон выбранной игры: плавная смена двух слоёв (hero из библиотеки Steam → фон страницы магазина → обложка)
 let bgLayer = 0, bgFor = null;
+const bgUrls = id => { const g = state.games.get(id) || {}; return [`${CDN}/${id}/library_hero.jpg`, `${CDN}/${id}/page_bg_generated_v6b.jpg`, g.img, `${CDN}/${id}/header.jpg`].filter(Boolean); };
+// подгружаем фон заранее, пока курсор над игрой — к клику он уже в кэше браузера
+let hoverT;
+document.addEventListener('mouseover', e => {
+  const g = e.target.closest && e.target.closest('.g'); if (!g) return;
+  clearTimeout(hoverT); hoverT = setTimeout(() => { new Image().src = bgUrls(+g.dataset.id)[0]; }, 150);
+});
 function setBg(id) {
   if (id === bgFor) return; bgFor = id;
   const L = document.querySelectorAll('#bg i');
   if (id == null) { L.forEach(x => x.classList.remove('on')); return; }
-  const g = state.games.get(id) || {};
-  const urls = [`${CDN}/${id}/library_hero.jpg`, `${CDN}/${id}/page_bg_generated_v6b.jpg`, g.img, `${CDN}/${id}/header.jpg`].filter(Boolean);
+  const urls = bgUrls(id);
   const tryUrl = k => {
     if (k >= urls.length || bgFor !== id) return;
     const im = new Image();
