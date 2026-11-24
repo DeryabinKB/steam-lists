@@ -564,6 +564,7 @@ function drawGame(g, d) {
       <div class="achs"><div class="ahead"><h4>Достижения ${ach.length ? `${done}/${ach.length}` : ''}</h4>
         ${ach.length ? `<span class="af">${[['all', 'Все'], ['todo', 'Не получены'], ['done', 'Получены'], ['pin', '📌']].map(([k, t]) => `<button data-f="${k}" class="${st.filter === k ? 'on' : ''}">${t}</button>`).join('')}</span>
         <select data-s>${[['steam', 'Порядок Steam'], ['close', 'Ближе к получению'], ['rare', 'Сначала редкие'], ['common', 'Сначала частые'], ['date', 'Недавно полученные']].map(([k, t]) => `<option value="${k}"${st.sort === k ? ' selected' : ''}>${t}</option>`).join('')}</select>` : ''}</div>
+        ${d && g.ach && g.ach[0] > done && d.src !== 'local' && d.src !== 'api' ? `<p class="hint">Всего получено <b>${g.ach[0]}/${g.ach[1]}</b>, но какие именно — Steam сейчас не отдаёт (профиль закрыт). Точно видно для игр, запускавшихся на этом ПК: нажми «🖥 С ПК».</p>` : ''}
         ${!d ? `<p class="hint">Нет подробностей об игре. Запусти на ПК новый <code>sync.cmd</code> (ZIP в «?»), он соберёт описания и ачивки.</p>`
           : ach.length ? list.map(a => achRow(id, a, !!state.pins[id]?.[a.id], d)).join('') || '<p class="hint">Пусто.</p>' : '<p class="hint">У игры нет достижений.</p>'}
       </div>
@@ -671,11 +672,13 @@ async function steamSync(quiet) {
       if (d.genres?.length) g.genres = d.genres;
       if (d.tags?.length) g.tags = d.tags;
       if (d.img && !g.img) g.img = d.img;
-      if (g.hours > 0 && d.ach.length && (d.playerOk || !g.ach)) g.ach = [d.ach.filter(a => a.t > 0).length, d.ach.length];
+      const od = (d.info || d.ach.length) ? await getDet(g.appid) : null;   // prog и локальные ачивки кладёт только PC-скрипт — сохраняем
+      // Steam не отдал ачивки (закрытый профиль) — оставляем, что было, нулями не затираем
+      if (g.hours > 0 && !d.playerOk && od?.ach) { const ot = Object.fromEntries([].concat(od.ach).map(a => [a.id, a.t])); d.ach.forEach(a => { a.t = ot[a.id] || 0; }); }
+      if (g.hours > 0 && d.ach.length && d.playerOk) g.ach = [d.ach.filter(a => a.t > 0).length, d.ach.length];
       if (d.info || d.ach.length) {
-        const od = await getDet(g.appid);   // связь «счётчик → ачивка» (prog) кладёт только PC-скрипт — сохраняем
         files[`games/${g.appid}.json`] = JSON.stringify({ appid: g.appid, name: d.name || g.name, info: d.info || od?.info || null, ach: d.ach, achLast: g.last,
-          prog: od?.prog || null, stats: d.stats || od?.stats || null, updated: new Date().toISOString() });
+          prog: od?.prog || null, stats: d.stats || od?.stats || null, src: d.playerOk ? 'api' : (od?.src || null), updated: new Date().toISOString() });
         det.delete(g.appid);
       }
       pend.push(g.appid);

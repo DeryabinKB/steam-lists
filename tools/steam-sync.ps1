@@ -350,6 +350,72 @@ function ReadProg($appid) {
   try { $script:kb = [IO.File]::ReadAllBytes($f); $script:kp = 0; $root = KvNode; $map = @{}; FindProg $root $map; return $map } catch { return @{} }
 }
 
+# полученные ачивки и счётчики из локальных файлов Steam (работает и при закрытом профиле,
+# но только для игр, которые запускались на этом ПК): UserGameStats_<аккаунт>_<appid>.bin + схема
+function ReadLocalUser($appid) {
+  $uf = Join-Path $steam "appcache\stats\UserGameStats_$($acc)_$appid.bin"
+  $sf = Join-Path $steam "appcache\stats\UserGameStatsSchema_$appid.bin"
+  if (!(Test-Path $uf) -or !(Test-Path $sf)) { return $null }
+  try {
+    $script:kb = [IO.File]::ReadAllBytes($sf); $script:kp = 0; $sch = KvNode
+    $script:kb = [IO.File]::ReadAllBytes($uf); $script:kp = 0; $usr = KvNode
+    $stats = $null; $q = New-Object System.Collections.Queue; $q.Enqueue($sch)
+    while ($q.Count) { $n = $q.Dequeue(); if ($n['stats'] -is [hashtable]) { $stats = $n['stats']; break }; foreach ($v in @($n.Values)) { if ($v -is [hashtable]) { $q.Enqueue($v) } } }
+    if (!$stats) { return $null }
+    $ur = $usr; while ($ur.Count -eq 1 -and (@($ur.Values)[0] -is [hashtable])) { $ur = @($ur.Values)[0] }
+    $unl = @{}; $vals = @{}
+    foreach ($sk in @($stats.Keys)) {
+      $st = $stats[$sk]; if ($st -isnot [hashtable]) { continue }
+      $sid = if ($st.ContainsKey('id')) { [string]$st['id'] } else { [string]$sk }
+      $u = $ur[$sid]; if ($u -isnot [hashtable]) { $u = $null }
+      $data = [int64]0; if ($u -and $u.ContainsKey('data')) { $data = [int64]$u['data'] }
+      if ($st['bits'] -is [hashtable]) {
+        $times = @{}; if ($u -and $u['AchievementTimes'] -is [hashtable]) { $times = $u['AchievementTimes'] }
+        foreach ($bk in @($st['bits'].Keys)) {
+          $b = $st['bits'][$bk]; if ($b -isnot [hashtable] -or !$b['name']) { continue }
+          $bit = if ($b.ContainsKey('bit')) { [int]$b['bit'] } else { [int]$bk }
+          if (($data -band ([int64]1 -shl $bit)) -ne 0) {
+            $t = [int64]1; if ($times.ContainsKey([string]$bit)) { $t = [math]::Max([int64]$times[[string]$bit], [int64]1) }
+            $unl[[string]$b['name']] = $t
+          }
+        }
+      } elseif ($st['name']) {
+        $v = $data; if ([string]$st['type'] -eq '2') { $v = [BitConverter]::ToSingle([BitConverter]::GetBytes([int32]$data), 0) }
+        $vals[[string]$st['name']] = $v
+      }
+    }
+    return @{ unl = $unl; stats = $vals }
+  } catch { return $null }
+}
+
+# 4a) восстановление (один раз): 24.11 Steam перестал отдавать ачивки закрытого профиля, и старый
+#     скрипт записал нули — берём максимум «получено» из истории library.json в репо данных
+$recFlag = Join-Path $dir 'ach-restored.flag'
+if (!(Test-Path $recFlag)) {
+  try {
+    Write-Host "Восстанавливаю счётчики ачивок из истории репо…"
+    $hist = Invoke-RestMethod "https://api.github.com/repos/$repo/commits?path=library.json&per_page=100" -Headers $ghHead
+    $best = @{}
+    foreach ($cm in $hist) {
+      try {
+        $r = Invoke-RestMethod "https://api.github.com/repos/$repo/contents/library.json?ref=$($cm.sha)" -Headers $ghHead
+        $txt = if ($r.content) { $utf8.GetString([Convert]::FromBase64String($r.content)) } else { $utf8.GetString((Invoke-WebRequest -UseBasicParsing -Uri $r.download_url).RawContentStream.ToArray()) }
+        foreach ($gg in ($txt | ConvertFrom-Json).games) {
+          if ($gg.ach -and [int]$gg.ach[0] -gt 0) { $k2 = "$($gg.appid)"; if (!$best[$k2] -or [int]$gg.ach[0] -gt $best[$k2][0]) { $best[$k2] = @([int]$gg.ach[0], [int]$gg.ach[1]) } }
+        }
+      } catch {}
+    }
+    $fixed = 0
+    foreach ($k2 in @($best.Keys)) {
+      if (!$meta[$k2]) { continue }
+      $cur = $meta[$k2].ach
+      if (!$cur -or [int]@($cur)[0] -lt $best[$k2][0]) { $meta[$k2] | Add-Member -Force ach $best[$k2]; $fixed++ }
+    }
+    Write-Host "Восстановлено игр: $fixed" -ForegroundColor Green
+    Set-Content $recFlag 'ok'
+  } catch { Write-Host "Восстановить из истории не вышло: $($_.Exception.Message)" -ForegroundColor Yellow }
+}
+
 # 4) карточки игр: описание из магазина + все ачивки (иконки, редкость, дата) → games/<appid>.json
 #    первый раз долго (все игры), дальше — только новые и те, в которые играл с прошлого раза
 $gdir = Join-Path $dir 'games'; New-Item -ItemType Directory -Force -Path $gdir | Out-Null
@@ -364,6 +430,8 @@ foreach ($g in $games.Values) {
   $needInfo = !$d -or !$d.info
   $needAch = [bool]$steamKey -and (!$d -or $null -eq $d.achLast -or ([int64]$d.achLast -ne [int64]$g.last))
   # прогресс ещё не собирали, а файл схемы Steam есть
+  # ачивки ещё не брали из локальных файлов Steam, а они есть
+  if (!$needAch -and $steamKey -and $d -and $g.hours -gt 0 -and $d.src -ne 'api' -and $d.src -ne 'local' -and (Test-Path (Join-Path $steam "appcache\stats\UserGameStats_$($acc)_$id.bin"))) { $needAch = $true }
   if (!$needAch -and $steamKey -and $d -and @($d.ach).Count -and $null -eq $d.prog -and (Test-Path (Join-Path $steam "appcache\stats\UserGameStatsSchema_$id.bin"))) { $needAch = $true }
   if ($needInfo -or $needAch) { [void]$work.Add(@($g, $d, $needInfo, $needAch)) }
 }
@@ -373,8 +441,8 @@ $k = 0
 foreach ($w in ($work | Select-Object -First $MaxNew)) {
   $g = $w[0]; $d = $w[1]; $needInfo = $w[2]; $needAch = $w[3]; $id = "$($g.appid)"
   $k++; Write-Progress -Activity 'Карточки игр и ачивки' -Status "$k / $total" -PercentComplete (100 * $k / $total)
-  $out = [ordered]@{ appid = $g.appid; name = $g.name; info = $null; ach = @(); achLast = $null; prog = $null; stats = $null; updated = (Get-Date).ToUniversalTime().ToString('o') }
-  if ($d) { if ($d.name) { $out.name = $d.name }; $out.info = $d.info; $out.ach = @($d.ach | Where-Object { $_ }); $out.achLast = $d.achLast; $out.prog = $d.prog; $out.stats = $d.stats }
+  $out = [ordered]@{ appid = $g.appid; name = $g.name; info = $null; ach = @(); achLast = $null; prog = $null; stats = $null; src = $null; updated = (Get-Date).ToUniversalTime().ToString('o') }
+  if ($d) { if ($d.name) { $out.name = $d.name }; $out.info = $d.info; $out.ach = @($d.ach | Where-Object { $_ }); $out.achLast = $d.achLast; $out.prog = $d.prog; $out.stats = $d.stats; $out.src = $d.src }
   if ($needInfo) {
     try {
       $s = Invoke-RestMethod "https://store.steampowered.com/api/appdetails?appids=$id&l=russian&cc=ru"
@@ -392,6 +460,7 @@ foreach ($w in ($work | Select-Object -First $MaxNew)) {
     Start-Sleep -Milliseconds 1500
   }
   if ($needAch) {
+    $src = 'none'
     $list = @($out.ach)
     if (!$list.Count) {
       try {
@@ -411,13 +480,20 @@ foreach ($w in ($work | Select-Object -First $MaxNew)) {
           $pa = Invoke-RestMethod "https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/?key=$steamKey&steamid=$id64&appid=$id"
           $um = @{}; foreach ($x in @($pa.playerstats.achievements)) { if ($x.achieved -eq 1) { $um[[string]$x.apiname] = [math]::Max([int64]$x.unlocktime, [int64]1) } }
           foreach ($a in $list) { $a.t = $(if ($um.ContainsKey([string]$a.id)) { $um[[string]$a.id] } else { 0 }) }
+          $src = 'api'
         } catch {}
+        if ($src -eq 'none') {   # Steam не отдал (закрытый профиль) — берём из файлов Steam на этом ПК
+          $loc = ReadLocalUser $id
+          if ($loc) { foreach ($a in $list) { $a.t = $(if ($loc.unl.ContainsKey([string]$a.id)) { $loc.unl[[string]$a.id] } else { 0 }) }; $out.stats = $loc.stats; $src = 'local' }
+        }
+        # не вышло ни так ни так — оставляем то, что было (не затираем нулями)
+        $out.src = $src
       }
     }
     if ($list.Count) {
       $pm = ReadProg $id
       if ($null -ne $pm) { $out.prog = $pm }
-      if ($pm -and $pm.Count -and $g.hours -gt 0) {
+      if ($pm -and $pm.Count -and $g.hours -gt 0 -and $src -eq 'api') {
         try {
           $us = Invoke-RestMethod "https://api.steampowered.com/ISteamUserStats/GetUserStatsForGame/v2/?key=$steamKey&steamid=$id64&appid=$id"
           $sv = @{}; foreach ($x in @($us.playerstats.stats)) { if ($x) { $sv[[string]$x.name] = $x.value } }; $out.stats = $sv
@@ -425,8 +501,13 @@ foreach ($w in ($work | Select-Object -First $MaxNew)) {
       }
     }
     $out.ach = $list; $out.achLast = $g.last
-    $ach = $null; if ($list.Count -and $g.hours -gt 0) { $ach = @(@($list | Where-Object { $_.t -gt 0 }).Count, $list.Count) }
     if (!$meta[$id]) { $meta[$id] = [pscustomobject]@{ t = 0 } }
+    $ach = $meta[$id].ach
+    if ($list.Count -and $g.hours -gt 0 -and $src -ne 'none') {
+      $done = @($list | Where-Object { $_.t -gt 0 }).Count
+      # локальные файлы могут быть неполными — меньше уже известного не ставим
+      if ($src -eq 'api' -or !$ach -or $done -ge [int]@($ach)[0]) { $ach = @($done, $list.Count) }
+    }
     $meta[$id] | Add-Member -Force ach $ach; $meta[$id] | Add-Member -Force achLast $g.last
   }
   [IO.File]::WriteAllText((Join-Path $gdir "$id.json"), ($out | ConvertTo-Json -Depth 6 -Compress), $utf8)
