@@ -249,7 +249,7 @@ function render() {
     d.querySelector('.meta').textContent = (g.genres || []).slice(0, 3).join(' · ');
     const ch = d.querySelector('.chips');
     for (const w of where) { const c = document.createElement('span'); c.className = 'in'; c.textContent = '🗂 ' + w; ch.append(c); }
-    for (const t of (g.tags || []).slice(0, 4)) { const c = document.createElement('span'); c.className = 'tg' + (state.tags.has(t) ? ' on' : ''); c.textContent = t; c.dataset.tag = t; ch.append(c); }
+    for (const t of (g.tags || []).filter(t => !GENRE_EN.has(norm(t))).slice(0, 4)) { const c = document.createElement('span'); c.className = 'tg' + (state.tags.has(t) ? ' on' : ''); c.textContent = t; c.dataset.tag = t; ch.append(c); }
     frag.append(d);
   }
   box.append(frag);
