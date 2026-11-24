@@ -447,7 +447,8 @@ $('#settings').addEventListener('close', () => {
   $('#sAccess').type = 'password'; LS.set('cfg', cfg); pull();
 });
 $('#reload').onclick = () => { $('#settings').close(); pull(); };
-$('#pcSync').onclick = () => { location.href = 'steamlists://sync'; };
+const pcSync = () => { location.href = 'steamlists://sync'; status('на ПК открылось окно синхронизации; после него нажми «Перезагрузить» или обнови страницу'); };
+$('#pcSync').onclick = pcSync; $('#pcBtn').onclick = pcSync;
 $('#steamBtn').onclick = toSteam;
 $('#syncBtn').onclick = () => steamSync();
 $('#exportJson').onclick = () => {
