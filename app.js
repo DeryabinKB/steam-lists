@@ -251,7 +251,7 @@ function render() {
     const where = manual().filter(l => l.items.includes(id) && l.id !== state.view).map(l => l.name);
     d.innerHTML = `<img loading="lazy" alt="" src="${CDN}/${id}/capsule_184x69.jpg" data-alt="${g.img || ''}" onerror="imgFail(this, ${id})">
       <div class="t"><div class="nm"></div><div class="meta"></div><div class="chips"></div></div>
-      <div class="ach">${p !== null ? `<div class="lbl">${p === 100 ? '🏆 ' : ''}${g.ach[0]}/${g.ach[1]} · ${p}%</div><div class="bar"><i style="width:${p}%"></i></div>` : ''}</div>
+      ${p !== null ? `<button type="button" class="ach" aria-label="Открыть достижения: ${g.ach[0]} из ${g.ach[1]}"><span class="lbl">${p === 100 ? '🏆 ' : ''}${g.ach[0]}/${g.ach[1]} · ${p}%</span><span class="bar"><i style="width:${p}%"></i></span></button>` : '<span class="achSpacer"></span>'}
       <div class="num"><b>${g.hours ? g.hours.toFixed(1) : '—'}</b>${g.hours ? ' ч' : ''}<small>${date(g.last)}</small></div>
       <button class="inf" title="Об игре и ачивки">ⓘ</button><a class="play" href="steam://run/${id}" title="Запустить в Steam">▶</a>`;
     d.querySelector('.nm').textContent = g.name;
@@ -549,7 +549,7 @@ function drawGame(g, d) {
     <div class="gbody">
       ${inf.desc ? `<p class="gdesc">${esc(unent(inf.desc))}</p>` : ''}
       <div class="gstats"><span><b>${g.hours ? g.hours.toFixed(1) : '0'}</b> ч</span>${g.last ? `<span>последний запуск <b>${fmtDate(g.last)}</b></span>` : '<span>не запускал</span>'}
-        ${p !== null ? `<span>ачивки <b>${done}/${ach.length}</b> · ${p}%</span>` : ''}</div>
+        ${p !== null ? `<button type="button" class="gach" data-ach-jump>Ачивки <b>${done}/${ach.length}</b> · ${p}%</button>` : ''}</div>
       ${p !== null ? `<div class="bar big"><i style="width:${p}%"></i></div>` : ''}
       <div class="glinks"><a class="primary" href="steam://run/${id}">▶ Играть</a>
         ${link(`https://store.steampowered.com/app/${id}`, 'Магазин')}
@@ -574,6 +574,7 @@ function drawGame(g, d) {
 $('#game').addEventListener('click', e => {
   const dlg = $('#game'), st = gameOpen; if (!st) return;
   if (e.target === dlg || e.target.closest('[data-x]')) { dlg.close(); return; }
+  if (e.target.closest('[data-ach-jump]')) { dlg.querySelector('.achs').scrollIntoView({ block: 'start' }); return; }
   const g = state.games.get(st.id) || { appid: st.id, name: `App ${st.id}` };
   const f = e.target.closest('[data-f]'); if (f) { st.filter = f.dataset.f; drawGame(g, st.d); return; }
   const pn = e.target.closest('[data-pin]');
