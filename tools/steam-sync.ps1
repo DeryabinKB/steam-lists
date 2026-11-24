@@ -307,6 +307,48 @@ foreach ($id in $imgTodo) {
 }
 Write-Progress -Activity 'Обложки' -Completed
 
+# прогресс ачивок (34/100): связь «счётчик → ачивка» есть только в файлах Steam на ПК
+# (appcache\stats\UserGameStatsSchema_<appid>.bin, бинарный KeyValues)
+function KvStr { $s0 = $script:kp; while ($script:kb[$script:kp] -ne 0) { $script:kp++ }; $r = $utf8.GetString($script:kb, $s0, $script:kp - $s0); $script:kp++; return $r }
+function KvNode {
+  $o = @{}
+  while ($script:kp -lt $script:kb.Length) {
+    $t = $script:kb[$script:kp]; $script:kp++
+    if ($t -eq 8 -or $t -eq 11) { break }
+    $name = KvStr
+    switch ($t) {
+      0 { $o[$name] = KvNode }
+      1 { $o[$name] = KvStr }
+      2 { $o[$name] = [BitConverter]::ToInt32($script:kb, $script:kp); $script:kp += 4 }
+      3 { $o[$name] = [BitConverter]::ToSingle($script:kb, $script:kp); $script:kp += 4 }
+      4 { $script:kp += 4 }
+      5 { while ($script:kb[$script:kp] -ne 0 -or $script:kb[$script:kp + 1] -ne 0) { $script:kp += 2 }; $script:kp += 2 }
+      6 { $script:kp += 4 }
+      7 { $o[$name] = [BitConverter]::ToUInt64($script:kb, $script:kp); $script:kp += 8 }
+      10 { $o[$name] = [BitConverter]::ToInt64($script:kb, $script:kp); $script:kp += 8 }
+      default { throw "kv: тип $t" }
+    }
+  }
+  return $o
+}
+function FindProg($node, $map) {
+  foreach ($k in @($node.Keys)) {
+    $v = $node[$k]
+    if ($v -isnot [hashtable]) { continue }
+    if ($v.ContainsKey('progress') -and $v.ContainsKey('name') -and $v['progress'] -is [hashtable]) {
+      $p = $v['progress']; $op = $null
+      if ($p['value'] -is [hashtable]) { $op = $p['value']['operand1'] }
+      if ($op) { try { $map[[string]$v['name']] = @([string]$op, [double]$p['min_val'], [double]$p['max_val']) } catch {} }
+    }
+    FindProg $v $map
+  }
+}
+function ReadProg($appid) {
+  $f = Join-Path $steam "appcache\stats\UserGameStatsSchema_$appid.bin"
+  if (!(Test-Path $f)) { return $null }
+  try { $script:kb = [IO.File]::ReadAllBytes($f); $script:kp = 0; $root = KvNode; $map = @{}; FindProg $root $map; return $map } catch { return @{} }
+}
+
 # 4) карточки игр: описание из магазина + все ачивки (иконки, редкость, дата) → games/<appid>.json
 #    первый раз долго (все игры), дальше — только новые и те, в которые играл с прошлого раза
 $gdir = Join-Path $dir 'games'; New-Item -ItemType Directory -Force -Path $gdir | Out-Null
@@ -320,6 +362,8 @@ foreach ($g in $games.Values) {
   if (Test-Path $f) { try { $d = [IO.File]::ReadAllText($f, $utf8) | ConvertFrom-Json } catch {} }
   $needInfo = !$d -or !$d.info
   $needAch = [bool]$steamKey -and (!$d -or $null -eq $d.achLast -or ([int64]$d.achLast -ne [int64]$g.last))
+  # прогресс ещё не собирали, а файл схемы Steam есть
+  if (!$needAch -and $steamKey -and $d -and @($d.ach).Count -and $null -eq $d.prog -and (Test-Path (Join-Path $steam "appcache\stats\UserGameStatsSchema_$id.bin"))) { $needAch = $true }
   if ($needInfo -or $needAch) { [void]$work.Add(@($g, $d, $needInfo, $needAch)) }
 }
 $total = [math]::Min($work.Count, $MaxNew)
@@ -328,8 +372,8 @@ $k = 0
 foreach ($w in ($work | Select-Object -First $MaxNew)) {
   $g = $w[0]; $d = $w[1]; $needInfo = $w[2]; $needAch = $w[3]; $id = "$($g.appid)"
   $k++; Write-Progress -Activity 'Карточки игр и ачивки' -Status "$k / $total" -PercentComplete (100 * $k / $total)
-  $out = [ordered]@{ appid = $g.appid; name = $g.name; info = $null; ach = @(); achLast = $null; updated = (Get-Date).ToUniversalTime().ToString('o') }
-  if ($d) { if ($d.name) { $out.name = $d.name }; $out.info = $d.info; $out.ach = @($d.ach | Where-Object { $_ }); $out.achLast = $d.achLast }
+  $out = [ordered]@{ appid = $g.appid; name = $g.name; info = $null; ach = @(); achLast = $null; prog = $null; stats = $null; updated = (Get-Date).ToUniversalTime().ToString('o') }
+  if ($d) { if ($d.name) { $out.name = $d.name }; $out.info = $d.info; $out.ach = @($d.ach | Where-Object { $_ }); $out.achLast = $d.achLast; $out.prog = $d.prog; $out.stats = $d.stats }
   if ($needInfo) {
     try {
       $s = Invoke-RestMethod "https://store.steampowered.com/api/appdetails?appids=$id&l=russian&cc=ru"
@@ -366,6 +410,16 @@ foreach ($w in ($work | Select-Object -First $MaxNew)) {
           $pa = Invoke-RestMethod "https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/?key=$steamKey&steamid=$id64&appid=$id"
           $um = @{}; foreach ($x in @($pa.playerstats.achievements)) { if ($x.achieved -eq 1) { $um[[string]$x.apiname] = [math]::Max([int64]$x.unlocktime, [int64]1) } }
           foreach ($a in $list) { $a.t = $(if ($um.ContainsKey([string]$a.id)) { $um[[string]$a.id] } else { 0 }) }
+        } catch {}
+      }
+    }
+    if ($list.Count) {
+      $pm = ReadProg $id
+      if ($null -ne $pm) { $out.prog = $pm }
+      if ($pm -and $pm.Count -and $g.hours -gt 0) {
+        try {
+          $us = Invoke-RestMethod "https://api.steampowered.com/ISteamUserStats/GetUserStatsForGame/v2/?key=$steamKey&steamid=$id64&appid=$id"
+          $sv = @{}; foreach ($x in @($us.playerstats.stats)) { if ($x) { $sv[[string]$x.name] = $x.value } }; $out.stats = $sv
         } catch {}
       }
     }

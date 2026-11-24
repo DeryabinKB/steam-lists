@@ -81,8 +81,11 @@ async function pull() {
     if (lib) { LS.set('library', lib); setLibrary(lib); }
     if (lists && !state.dirty) { state.lists = lists.lists || []; state.pins = lists.pins || {}; LS.set('lists', state.lists); LS.set('pins', state.pins); }
     status(lib ? '✓' : 'нет library.json — запусти steam-sync на ПК');
-  } catch (e) { status('⚠ ' + e.message); }
+  } catch (e) { status('⚠ ' + e.message); render(); return; }
   render();
+  // авто-⟳: если библиотека старше часа
+  const L = LS.get('library', null);
+  if (L?.updated && Date.now() - Date.parse(L.updated) > 3600e3) steamSync(true);
 }
 function setLibrary(lib) {
   state.games.clear();
@@ -486,10 +489,18 @@ function togglePin(appid, a) {
 }
 const fmtDate = t => t > 1 ? new Date(t * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
 const rareCls = p => p == null ? '' : p < 5 ? 'r1' : p < 20 ? 'r2' : '';
-function achRow(appid, a, pinned) {
+// прогресс ачивки (34/100): связь «счётчик → ачивка» из файлов Steam на ПК (prog), значения — stats
+function achProg(d, a) {
+  const pr = d?.prog?.[a.id]; if (!pr || a.t > 0) return null;
+  const [stat, min, max] = pr; if (!(max > min)) return null;
+  const cur = Math.max(min, Math.min(max, +(d.stats?.[stat] ?? min)));
+  return { cur, max, pct: Math.round(100 * (cur - min) / (max - min)) };
+}
+const progHtml = pg => pg ? `<div class="apg"><div class="bar"><i style="width:${pg.pct}%"></i></div><small>${pg.cur.toLocaleString()} / ${pg.max.toLocaleString()}</small></div>` : '';
+function achRow(appid, a, pinned, d) {
   const done = a.t > 0, hid = a.h && !done && !a.d;
   return `<div class="ar${done ? ' done' : ''}"><img loading="lazy" src="${esc(done ? a.i : (a.g || a.i))}" alt="">
-    <div class="at"><b>${esc(a.n)}</b><span>${hid ? '<i>Скрытое достижение</i>' : esc(a.d)}</span></div>
+    <div class="at"><b>${esc(a.n)}</b><span>${hid ? '<i>Скрытое достижение</i>' : esc(a.d)}</span>${progHtml(achProg(d, a))}</div>
     <div class="ap ${rareCls(a.p)}">${a.p != null ? a.p + '%' : ''}<small>${done ? '✓ ' + fmtDate(a.t) : ''}</small></div>
     <button class="pin${pinned ? ' on' : ''}" data-pin="${esc(a.id)}" title="${pinned ? 'Открепить' : 'Закрепить в «Цели»'}">📌</button></div>`;
 }
@@ -514,6 +525,7 @@ function drawGame(g, d) {
   let list = ach.filter(a => st.filter === 'all' || (st.filter === 'todo' ? !(a.t > 0) : st.filter === 'done' ? a.t > 0 : state.pins[id]?.[a.id]));
   if (st.sort === 'rare') list = list.slice().sort((a, b) => (a.p ?? 101) - (b.p ?? 101));
   if (st.sort === 'common') list = list.slice().sort((a, b) => (b.p ?? -1) - (a.p ?? -1));
+  if (st.sort === 'close') list = list.slice().sort((a, b) => (achProg(d, b)?.pct ?? (b.t > 0 ? -2 : -1)) - (achProg(d, a)?.pct ?? (a.t > 0 ? -2 : -1)));
   if (st.sort === 'date') list = list.slice().sort((a, b) => (b.t || 0) - (a.t || 0));
   const inLists = manual().map(l => `<span class="lt${l.items.includes(id) ? ' on' : ''}" data-lt="${esc(l.id)}">${esc(l.name)}</span>`).join('');
   $('#game').innerHTML = `<div class="gd">
@@ -537,9 +549,9 @@ function drawGame(g, d) {
       ${inf.shots?.length ? `<div class="shots">${inf.shots.map(u => `<a href="${esc(u.replace('.600x338', ''))}" target="_blank"><img loading="lazy" src="${esc(u)}" alt=""></a>`).join('')}</div>` : ''}
       <div class="achs"><div class="ahead"><h4>Достижения ${ach.length ? `${done}/${ach.length}` : ''}</h4>
         ${ach.length ? `<span class="af">${[['all', 'Все'], ['todo', 'Не получены'], ['done', 'Получены'], ['pin', '📌']].map(([k, t]) => `<button data-f="${k}" class="${st.filter === k ? 'on' : ''}">${t}</button>`).join('')}</span>
-        <select data-s>${[['steam', 'Порядок Steam'], ['rare', 'Сначала редкие'], ['common', 'Сначала частые'], ['date', 'Недавно полученные']].map(([k, t]) => `<option value="${k}"${st.sort === k ? ' selected' : ''}>${t}</option>`).join('')}</select>` : ''}</div>
+        <select data-s>${[['steam', 'Порядок Steam'], ['close', 'Ближе к получению'], ['rare', 'Сначала редкие'], ['common', 'Сначала частые'], ['date', 'Недавно полученные']].map(([k, t]) => `<option value="${k}"${st.sort === k ? ' selected' : ''}>${t}</option>`).join('')}</select>` : ''}</div>
         ${!d ? `<p class="hint">Нет подробностей об игре. Запусти на ПК новый <code>sync.cmd</code> (ZIP в «?»), он соберёт описания и ачивки.</p>`
-          : ach.length ? list.map(a => achRow(id, a, !!state.pins[id]?.[a.id])).join('') || '<p class="hint">Пусто.</p>' : '<p class="hint">У игры нет достижений.</p>'}
+          : ach.length ? list.map(a => achRow(id, a, !!state.pins[id]?.[a.id], d)).join('') || '<p class="hint">Пусто.</p>' : '<p class="hint">У игры нет достижений.</p>'}
       </div>
     </div></div>`;
 }
@@ -573,6 +585,7 @@ function renderGoals() {
     for (const r of el.querySelectorAll('.ar')) {
       const a = d.ach.find(x => x.id === r.dataset.a); if (!a) continue;
       if (a.t > 0) { r.classList.add('done'); r.querySelector('small').textContent = '✓ получено ' + fmtDate(a.t); }
+      else { const pg = achProg(d, a); if (pg) r.querySelector('.at').insertAdjacentHTML('beforeend', progHtml(pg)); }
       if (a.p != null) { const ap = r.querySelector('.ap'); ap.classList.add(...[rareCls(a.p)].filter(Boolean)); ap.prepend(a.p + '%'); }
     }
   });
@@ -605,8 +618,9 @@ async function pushFiles(files, msg) {
   }
 }
 let syncing = false;
-async function steamSync() {
+async function steamSync(quiet) {
   if (syncing) return;
+  if (quiet && (!cfg.repo || !cfg.token || !cfg.worker || !cfg.access || !LS.get('library', null)?.steamid)) return;
   if (!cfg.repo || !cfg.token) return alert('Сначала ⚙: репо и токен GitHub.');
   if (!cfg.worker || !cfg.access) { alert('Для ⟳ нужен Cloudflare Worker. Инструкция: «?» → «Обновление без ПК».'); $('#help').showModal(); return; }
   const old = LS.get('library', null);
@@ -645,7 +659,9 @@ async function steamSync() {
       if (d.img && !g.img) g.img = d.img;
       if (g.hours > 0 && d.ach.length && (d.playerOk || !g.ach)) g.ach = [d.ach.filter(a => a.t > 0).length, d.ach.length];
       if (d.info || d.ach.length) {
-        files[`games/${g.appid}.json`] = JSON.stringify({ appid: g.appid, name: d.name || g.name, info: d.info || null, ach: d.ach, achLast: g.last, updated: new Date().toISOString() });
+        const od = await getDet(g.appid);   // связь «счётчик → ачивка» (prog) кладёт только PC-скрипт — сохраняем
+        files[`games/${g.appid}.json`] = JSON.stringify({ appid: g.appid, name: d.name || g.name, info: d.info || od?.info || null, ach: d.ach, achLast: g.last,
+          prog: od?.prog || null, stats: d.stats || od?.stats || null, updated: new Date().toISOString() });
         det.delete(g.appid);
       }
       pend.push(g.appid);
@@ -656,7 +672,7 @@ async function steamSync() {
     if (!todo.length) { const L = lib(); await store('library.json', L, `⟳ библиотека (${games.length} игр)`); LS.set('library', L); }
     setLibrary(LS.get('library', null)); render();
     status(`✓ обновлено: ${todo.length} игр` + (errs ? `, ошибок ${errs}` : ''));
-  } catch (e) { status('⚠ ' + e.message); alert('Обновление прервано: ' + e.message + '\nУже обработанное сохранено, следующий ⟳ продолжит.'); }
+  } catch (e) { status('⚠ ' + e.message); if (!quiet) alert('Обновление прервано: ' + e.message + '\nУже обработанное сохранено, следующий ⟳ продолжит.'); }
   finally { syncing = false; $('#syncBtn').classList.remove('spin'); }
 }
 

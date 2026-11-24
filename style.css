@@ -178,3 +178,7 @@ dialog#game{padding:0;max-width:820px;width:94vw;max-height:92vh;overflow:auto;b
 }
 #syncBtn.spin{animation:spin 1s linear infinite;pointer-events:none}
 @keyframes spin{to{transform:rotate(360deg)}}
+.apg{display:flex;align-items:center;gap:8px;margin-top:4px;max-width:340px}
+.apg .bar{flex:1;height:5px;background:#0b1118;border-radius:3px;overflow:hidden}
+.apg .bar i{display:block;height:100%;background:linear-gradient(90deg,#4c8bc0,var(--hi))}
+.apg small{font-size:11px;color:#9fb3c6;white-space:nowrap}

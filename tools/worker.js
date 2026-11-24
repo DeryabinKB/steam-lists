@@ -37,12 +37,14 @@ export default {
 
       // одна игра: магазин (описание, жанры), теги SteamSpy, все ачивки с редкостью и статусом
       if (u.pathname === '/game') {
-        const [store, spy, schema, glob, mine] = await Promise.all([
+        const played = q.get('played') && sid;
+        const [store, spy, schema, glob, mine, ust] = await Promise.all([
           safe(get(`https://store.steampowered.com/api/appdetails?appids=${app}&l=russian&cc=ru`)),
           q.get('tags') ? safe(get(`https://steamspy.com/api.php?request=appdetails&appid=${app}`)) : null,
           safe(get(`${API}/ISteamUserStats/GetSchemaForGame/v2/?key=${key}&appid=${app}&l=russian`)),
           safe(get(`${API}/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?gameid=${app}`)),
-          q.get('played') && sid ? safe(get(`${API}/ISteamUserStats/GetPlayerAchievements/v1/?key=${key}&steamid=${sid}&appid=${app}`)) : null,
+          played ? safe(get(`${API}/ISteamUserStats/GetPlayerAchievements/v1/?key=${key}&steamid=${sid}&appid=${app}`)) : null,
+          played ? safe(get(`${API}/ISteamUserStats/GetUserStatsForGame/v2/?key=${key}&steamid=${sid}&appid=${app}`)) : null,
         ]);
         const out = { appid: +app, storeOk: !!store };
         const s = store?.[app];
@@ -58,6 +60,8 @@ export default {
         out.ach = (schema?.game?.availableGameStats?.achievements || []).map(a => ({
           id: a.name, n: a.displayName, d: a.description || '', i: a.icon, g: a.icongray, h: a.hidden ? 1 : 0, p: pct[a.name] ?? null, t: got[a.name] || 0 }));
         out.playerOk = !!mine;
+        // счётчики игры (для прогресса ачивок вида 34/100)
+        if (ust?.playerstats?.stats) { out.stats = {}; for (const x of ust.playerstats.stats) out.stats[x.name] = x.value; }
         return json(out);
       }
     } catch (e) { return json({ error: String(e.message || e) }, 502); }
