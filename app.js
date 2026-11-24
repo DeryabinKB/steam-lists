@@ -257,6 +257,7 @@ function render() {
   box.append(frag);
   $('#selbar').hidden = !state.sel.size;
   $('#selCount').textContent = `✔ ${state.sel.size}`;
+  if (!state.sel.size) setBg(null);
   const inList = !!curList(), ordered = inList && $('#sort').value === 'order';
   $('#selbar [data-act=remove]').hidden = !inList;
   $('#selbar [data-act=top]').hidden = $('#selbar [data-act=bottom]').hidden = !ordered;
@@ -264,8 +265,31 @@ function render() {
 }
 
 // выделение без перерисовки списка (ничего не прыгает)
+// фон выбранной игры: плавная смена двух слоёв (hero из библиотеки Steam → фон страницы магазина → обложка)
+let bgLayer = 0, bgFor = null;
+function setBg(id) {
+  if (id === bgFor) return; bgFor = id;
+  const L = document.querySelectorAll('#bg i');
+  if (id == null) { L.forEach(x => x.classList.remove('on')); return; }
+  const g = state.games.get(id) || {};
+  const urls = [`${CDN}/${id}/library_hero.jpg`, `${CDN}/${id}/page_bg_generated_v6b.jpg`, g.img, `${CDN}/${id}/header.jpg`].filter(Boolean);
+  const tryUrl = k => {
+    if (k >= urls.length || bgFor !== id) return;
+    const im = new Image();
+    im.onload = () => {
+      if (bgFor !== id) return;
+      const next = L[bgLayer ^ 1], cur = L[bgLayer];
+      next.style.backgroundImage = `url("${urls[k]}")`; next.classList.toggle('blur', k >= 2);
+      next.classList.add('on'); cur.classList.remove('on'); bgLayer ^= 1;
+    };
+    im.onerror = () => tryUrl(k + 1);
+    im.src = urls[k];
+  };
+  tryUrl(0);
+}
 function updateSel() {
   for (const el of $('#list').children) if (el.dataset.id) el.classList.toggle('sel', state.sel.has(+el.dataset.id));
+  setBg(state.sel.size ? (state.sel.has(state.lastClick) ? state.lastClick : [...state.sel].pop()) : null);
   $('#selbar').hidden = !state.sel.size;
   $('#selCount').textContent = `✔ ${state.sel.size}`;
 }
