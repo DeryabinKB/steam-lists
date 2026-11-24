@@ -33,7 +33,8 @@ if (!$env:SL_NOUPDATE -and $PSCommandPath) {
     $cur = [IO.File]::ReadAllBytes($PSCommandPath)
     if ($new.Length -gt 5000 -and [Convert]::ToBase64String($new) -ne [Convert]::ToBase64String($cur)) {
       $why = ''
-      try { $c = @(Invoke-RestMethod -TimeoutSec 15 'https://api.github.com/repos/DeryabinKB/steam-lists/commits?path=tools/steam-sync.ps1&per_page=3'); $why = ($c | ForEach-Object { '  - ' + $_.commit.message.Split("`n")[0] + ' (' + $_.commit.author.name + ', ' + ([datetime]$_.commit.author.date).ToString('dd.MM HH:mm') + ')' }) -join "`n" } catch {}
+      try { $c = Invoke-RestMethod -TimeoutSec 15 -Headers @{ 'User-Agent' = 'steam-lists' } 'https://api.github.com/repos/DeryabinKB/steam-lists/commits?path=tools/steam-sync.ps1&per_page=3'
+        $lines = foreach ($x in $c) { '  - ' + ([string]$x.commit.message).Split("`n")[0] + ' (' + $x.commit.author.name + ', ' + ([datetime]$x.commit.author.date).ToString('dd.MM HH:mm') + ')' }; $why = $lines -join "`n" } catch {}
       Write-Host "Есть новая версия скрипта. Последние изменения:`n$why" -ForegroundColor Cyan
       if ((Read-Host "Обновить? [Y/n]") -notmatch '^\s*[nNнН]') {
         [IO.File]::WriteAllBytes($PSCommandPath, $new)
