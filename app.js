@@ -447,7 +447,20 @@ $('#settings').addEventListener('close', () => {
   $('#sAccess').type = 'password'; LS.set('cfg', cfg); pull();
 });
 $('#reload').onclick = () => { $('#settings').close(); pull(); };
-const pcSync = () => { location.href = 'steamlists://sync'; status('на ПК открылось окно синхронизации; после него нажми «Перезагрузить» или обнови страницу'); };
+let pcWatch;
+const pcSync = () => {
+  location.href = 'steamlists://sync';
+  status('🖥 идёт сбор на ПК…');
+  // ждём, пока скрипт отправит новую библиотеку, и сами подхватываем её
+  const was = LS.get('library', null)?.updated; let n = 0; clearInterval(pcWatch);
+  pcWatch = setInterval(async () => {
+    if (++n > 180) { clearInterval(pcWatch); return; }
+    try { const r = await gh('library.json'); if (!r.ok) return; const j = await r.json(); state.shas['library.json'] = j.sha;
+      const lib = j.content ? JSON.parse(dec(j.content)) : await (await gh('library.json', { raw: true })).json();
+      if (lib.updated !== was) { clearInterval(pcWatch); det.clear(); LS.set('library', lib); setLibrary(lib); render(); status('✓ подхватил данные с ПК'); }
+    } catch {}
+  }, 20000);
+};
 $('#pcSync').onclick = pcSync; $('#pcBtn').onclick = pcSync;
 $('#steamBtn').onclick = toSteam;
 $('#syncBtn').onclick = () => steamSync();
