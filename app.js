@@ -171,7 +171,7 @@ function render() {
   const item = (id, name, n, editable, icon) => {
     const d = document.createElement('div');
     d.className = 'it' + (state.view === id ? ' on' : ''); d.dataset.id = id;
-    d.innerHTML = `<span class="ic">${icon}</span><span class="nm"></span>${editable ? '<button class="ed" data-e="up" title="Выше">▲</button><button class="ed" data-e="ren" title="Переименовать">✎</button><button class="ed" data-e="del" title="Удалить">✕</button>' : ''}<span class="n">${n}</span>`;
+    d.innerHTML = `<span class="ic">${icon}</span><span class="nm"></span><span class="n">${n}</span>${editable ? '<span class="eds"><button class="ed" data-e="up" title="Выше">▲</button><button class="ed" data-e="ren" title="Переименовать">✎</button><button class="ed" data-e="del" title="Удалить">✕</button></span>' : ''}`;
     d.querySelector('.nm').textContent = name;
     side.append(d);
   };
@@ -224,11 +224,13 @@ function render() {
   const achAvg = withAch.length ? Math.round(withAch.reduce((a, g) => a + g.ach[0] / g.ach[1], 0) / withAch.length * 100) : null;
   const perfect = withAch.filter(g => g.ach[0] === g.ach[1]).length;
   const fresh = G.filter(g => !g.hours).length;
-  $('#head').innerHTML = `<h2></h2><div class="stats">
+  $('#head').classList.toggle('hid', !!LS.get('headHidden', false));
+  $('#head').innerHTML = `<h2></h2><button class="hx" title="Скрыть/показать сводку">${LS.get('headHidden', false) ? '▸' : '▾'}</button><div class="stats">
     <span><b>${ids.length}</b> игр</span><span><b>${Math.round(hrs).toLocaleString()}</b> ч наиграно</span>
     <span><b>${fresh}</b> не запускал</span>${achAvg !== null ? `<span>ачивки в среднем <b>${achAvg}%</b></span><span>🏆 <b>${perfect}</b> на 100%</span>` : ''}
     ${view && isSmart(view) ? `<span class="q">фильтр: <code></code></span>` : ''}</div>`;
   $('#head h2').textContent = title;
+  $('#head .hx').onclick = () => { LS.set('headHidden', !LS.get('headHidden', false)); render(); };
   if (view && isSmart(view)) $('#head code').textContent = view.query;
 
   const box = $('#list'); box.innerHTML = '';
