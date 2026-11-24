@@ -719,15 +719,17 @@ $('#qrBtn').onclick = async () => {
   setTimeout(() => { box.hidden = true; $('#qr').innerHTML = ''; }, 120000);   // спрятать через 2 минуты
 };
 (function applySetup() {
-  const m = location.hash.match(/^#s=([^~]+)~([^~]+)~([^~]*)~([^~]*)$/), m2 = location.hash.match(/^#setup=([\w-]+)$/);
-  if (!m && !m2) return;
+  let h = location.hash; try { h = decodeURIComponent(h); } catch {}
+  if (!/^#(s|setup)=/.test(h)) return;
   history.replaceState(null, '', location.pathname);   // убрать токен из адресной строки и истории
+  const m = h.match(/^#s=([^~]+)~([^~]+)~([^~]*)~([^~]*)$/), m2 = h.match(/^#setup=([\w-]+)$/);
   try {
-    const c = m ? { repo: decodeURIComponent(m[1]), token: m[2], worker: m[3] ? 'https://' + m[3] : '', access: m[4] } : unb64u(m2[1]);
+    const c = m ? { repo: m[1], token: m[2], worker: m[3] ? 'https://' + m[3] : '', access: m[4] } : unb64u(m2[1]);
     if (!c.repo || !c.token) throw 0;
-    if (!confirm(`Применить настройки Steam Lists?\nРепо: ${c.repo}${c.worker ? '\nWorker: да' : ''}`)) return;
-    Object.assign(cfg, { repo: c.repo, token: c.token, worker: c.worker || '', access: c.access || '' }); LS.set('cfg', cfg); LS.set('helped', true);
-  } catch { alert('Ссылка с настройками повреждена.'); }
+    Object.assign(cfg, { repo: c.repo.trim(), token: c.token.trim(), worker: (c.worker || '').trim(), access: (c.access || '').trim() });
+    LS.set('cfg', cfg); LS.set('helped', true);
+    setTimeout(() => status('✓ настройки перенесены'), 50);
+  } catch { alert('Ссылка с настройками не распозналась. Открой её в Chrome (не во встроенном браузере сканера) или введи настройки в ⚙ вручную.'); }
 })();
 
 // клик по затемнению вокруг окна — закрыть (для всех окон)
