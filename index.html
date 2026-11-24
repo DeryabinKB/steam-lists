@@ -26,15 +26,17 @@
 <div id="wrap">
   <nav id="side"></nav>
   <main>
+    <div id="head"></div>
     <div id="tagbar"></div>
     <div id="selbar" hidden>
       <b id="selCount"></b>
-      <button data-act="move">Переместить в…</button>
-      <button data-act="copy">Копировать в…</button>
-      <button data-act="remove">Убрать из списка</button>
-      <button data-act="top">↑ В начало</button>
-      <button data-act="bottom">↓ В конец</button>
-      <button data-act="all">Выделить все</button>
+      <button data-act="move" class="primary">➜ Переместить</button>
+      <button data-act="copy">⧉ Копировать</button>
+      <button data-act="remove">✕ Убрать из списка</button>
+      <button data-act="top" title="В начало списка">⤒ Наверх</button>
+      <button data-act="bottom" title="В конец списка">⤓ Вниз</button>
+      <span class="sp"></span>
+      <button data-act="all">☑ Выделить все</button>
       <button data-act="none">Снять</button>
     </div>
     <div id="list"></div>

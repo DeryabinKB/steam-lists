@@ -162,20 +162,24 @@ function imgFail(el, id) {
 function render() {
   const inAny = new Set(manual().flatMap(l => l.items));
   const side = $('#side'); side.innerHTML = '';
-  const item = (id, name, n, editable) => {
+  const item = (id, name, n, editable, icon) => {
     const d = document.createElement('div');
     d.className = 'it' + (state.view === id ? ' on' : ''); d.dataset.id = id;
-    d.innerHTML = `<span class="nm"></span>${editable ? '<button class="ed" data-e="up" title="Выше">▲</button><button class="ed" data-e="ren" title="Переименовать">✎</button><button class="ed" data-e="del" title="Удалить">✕</button>' : ''}<span class="n">${n}</span>`;
+    d.innerHTML = `<span class="ic">${icon}</span><span class="nm"></span>${editable ? '<button class="ed" data-e="up" title="Выше">▲</button><button class="ed" data-e="ren" title="Переименовать">✎</button><button class="ed" data-e="del" title="Удалить">✕</button>' : ''}<span class="n">${n}</span>`;
     d.querySelector('.nm').textContent = name;
     side.append(d);
   };
-  item('all', 'Вся библиотека', state.games.size);
-  item('none', 'Без списка', [...state.games.keys()].filter(i => !inAny.has(i)).length);
-  side.append(document.createElement('hr'));
-  state.lists.forEach((l, i) => item(l.id, isSmart(l) ? `⚡ ${l.name}` : `${i + 1}. ${l.name}`, isSmart(l) ? smartIds(l).length : l.items.length, true));
+  const sec = t => { const h = document.createElement('div'); h.className = 'sec'; h.textContent = t; side.append(h); };
+  sec('Библиотека');
+  item('all', 'Вся библиотека', state.games.size, false, '🎮');
+  item('none', 'Без списка', [...state.games.keys()].filter(i => !inAny.has(i)).length, false, '📥');
+  sec('Мои списки');
+  manual().forEach((l, i) => item(l.id, l.name, l.items.length, true, `<b>${i + 1}</b>`));
   const add = document.createElement('button'); add.className = 'add'; add.textContent = '+ Новый список'; add.dataset.e = 'add';
   side.append(add);
-  const sadd = document.createElement('button'); sadd.className = 'add'; sadd.textContent = '⚡ Умный список из поиска'; sadd.dataset.e = 'smart';
+  sec('Умные списки');
+  state.lists.filter(isSmart).forEach(l => item(l.id, l.name, smartIds(l).length, true, '⚡'));
+  const sadd = document.createElement('button'); sadd.className = 'add'; sadd.textContent = '⚡ Из текущего поиска'; sadd.dataset.e = 'smart';
   side.append(sadd);
 
   const tb = $('#tagbar'); tb.innerHTML = '';
@@ -187,29 +191,57 @@ function render() {
 
   const ids = visible(); state.visible = ids;
   for (const id of [...state.sel]) if (!ids.includes(id)) state.sel.delete(id);
+  // шапка: название и сводка по тому, что сейчас видно
+  const view = state.lists.find(l => l.id === state.view);
+  const title = view ? (isSmart(view) ? '⚡ ' : '') + view.name : state.view === 'none' ? 'Без списка' : 'Вся библиотека';
+  const G = ids.map(i => state.games.get(i));
+  const hrs = G.reduce((a, g) => a + (g.hours || 0), 0);
+  const withAch = G.filter(g => g.ach && g.ach[1]);
+  const achAvg = withAch.length ? Math.round(withAch.reduce((a, g) => a + g.ach[0] / g.ach[1], 0) / withAch.length * 100) : null;
+  const perfect = withAch.filter(g => g.ach[0] === g.ach[1]).length;
+  const fresh = G.filter(g => !g.hours).length;
+  $('#head').innerHTML = `<h2></h2><div class="stats">
+    <span><b>${ids.length}</b> игр</span><span><b>${Math.round(hrs).toLocaleString()}</b> ч наиграно</span>
+    <span><b>${fresh}</b> не запускал</span>${achAvg !== null ? `<span>ачивки в среднем <b>${achAvg}%</b></span><span>🏆 <b>${perfect}</b> на 100%</span>` : ''}
+    ${view && isSmart(view) ? `<span class="q">фильтр: <code></code></span>` : ''}</div>`;
+  $('#head h2').textContent = title;
+  if (view && isSmart(view)) $('#head code').textContent = view.query;
+
   const box = $('#list'); box.innerHTML = '';
-  if (!ids.length) box.innerHTML = `<div class="empty">${state.games.size ? 'Пусто' : 'Библиотека пуста. Настрой репо (⚙) и запусти steam-sync на ПК.'}</div>`;
+  if (!ids.length) box.innerHTML = `<div class="empty">${state.games.size ? '🕳 Здесь пусто. Перетащи сюда игры или поменяй фильтр.' : '🎮 Библиотека пуста.<br>Нажми ?, там по шагам: репо, токен, sync.cmd на ПК.'}</div>`;
   const frag = document.createDocumentFragment();
+  const date = t => t ? new Date(t * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
   for (const id of ids.slice(0, 3000)) {
     const g = state.games.get(id), p = achPct(g);
     const d = document.createElement('div');
-    d.className = 'g' + (state.sel.has(id) ? ' sel' : ''); d.dataset.id = id; d.draggable = true;
-    const where = manual().filter(l => l.items.includes(id)).map(l => l.name);
+    d.className = 'g' + (state.sel.has(id) ? ' sel' : '') + (p === 100 ? ' perfect' : ''); d.dataset.id = id; d.draggable = true;
+    const where = manual().filter(l => l.items.includes(id) && l.id !== state.view).map(l => l.name);
     d.innerHTML = `<img loading="lazy" alt="" src="${CDN}/${id}/capsule_184x69.jpg" data-alt="${g.img || ''}" onerror="imgFail(this, ${id})">
-      <div class="t"><div class="nm"></div><div class="meta"></div>${p !== null ? `<div class="bar"><i style="width:${p}%"></i></div>` : ''}</div>
-      <div class="num">${g.hours ? g.hours.toFixed(1) + ' ч' : '—'}${g.ach && g.ach[1] ? `<br>${g.ach[0]}/${g.ach[1]}` : ''}</div>
+      <div class="t"><div class="nm"></div><div class="meta"></div><div class="chips"></div></div>
+      <div class="ach">${p !== null ? `<div class="lbl">${p === 100 ? '🏆 ' : ''}${g.ach[0]}/${g.ach[1]} · ${p}%</div><div class="bar"><i style="width:${p}%"></i></div>` : ''}</div>
+      <div class="num"><b>${g.hours ? g.hours.toFixed(1) : '—'}</b>${g.hours ? ' ч' : ''}<small>${date(g.last)}</small></div>
       <a class="play" href="steam://run/${id}" title="Запустить в Steam">▶</a>`;
     d.querySelector('.nm').textContent = g.name;
-    d.querySelector('.meta').textContent = [state.view === 'all' && where.length ? '📁 ' + where.join(', ') : '', (g.genres || []).slice(0, 3).join(', ')].filter(Boolean).join(' · ');
+    d.querySelector('.meta').textContent = (g.genres || []).slice(0, 3).join(' · ');
+    const ch = d.querySelector('.chips');
+    for (const w of where) { const c = document.createElement('span'); c.className = 'in'; c.textContent = '🗂 ' + w; ch.append(c); }
+    for (const t of (g.tags || []).slice(0, 4)) { const c = document.createElement('span'); c.className = 'tg' + (state.tags.has(t) ? ' on' : ''); c.textContent = t; c.dataset.tag = t; ch.append(c); }
     frag.append(d);
   }
   box.append(frag);
   $('#selbar').hidden = !state.sel.size;
-  $('#selCount').textContent = `Выбрано: ${state.sel.size}`;
+  $('#selCount').textContent = `✔ ${state.sel.size}`;
   const inList = !!curList(), ordered = inList && $('#sort').value === 'order';
   $('#selbar [data-act=remove]').hidden = !inList;
   $('#selbar [data-act=top]').hidden = $('#selbar [data-act=bottom]').hidden = !ordered;
   LS.set('view', state.view);
+}
+
+// выделение без перерисовки списка (ничего не прыгает)
+function updateSel() {
+  for (const el of $('#list').children) if (el.dataset.id) el.classList.toggle('sel', state.sel.has(+el.dataset.id));
+  $('#selbar').hidden = !state.sel.size;
+  $('#selCount').textContent = `✔ ${state.sel.size}`;
 }
 
 /* ---------- list operations ---------- */
@@ -280,13 +312,15 @@ $('#side').addEventListener('click', e => {
 });
 $('#list').addEventListener('click', e => {
   if (e.target.closest('a')) return;
+  const tg = e.target.dataset.tag;
+  if (tg) { state.tags.has(tg) ? state.tags.delete(tg) : state.tags.add(tg); render(); return; }
   const g = e.target.closest('.g'); if (!g) return;
   const id = +g.dataset.id;
   if (e.shiftKey && state.lastClick != null) {
     const v = state.visible, a = v.indexOf(state.lastClick), b = v.indexOf(id);
     for (const x of v.slice(Math.min(a, b), Math.max(a, b) + 1)) state.sel.add(x);
   } else state.sel.has(id) ? state.sel.delete(id) : state.sel.add(id);
-  state.lastClick = id; render();
+  state.lastClick = id; updateSel();
 });
 $('#selbar').addEventListener('click', e => {
   const a = e.target.dataset.act, ids = state.visible.filter(i => state.sel.has(i));
@@ -295,8 +329,8 @@ $('#selbar').addEventListener('click', e => {
   if (a === 'remove') removeFrom(ids);
   if (a === 'top') reorder(ids, curList().items.find(i => !state.sel.has(i)) ?? null);
   if (a === 'bottom') reorder(ids, null);
-  if (a === 'all') { state.visible.forEach(i => state.sel.add(i)); render(); }
-  if (a === 'none') { state.sel.clear(); render(); }
+  if (a === 'all') { state.visible.forEach(i => state.sel.add(i)); updateSel(); }
+  if (a === 'none') { state.sel.clear(); updateSel(); }
 });
 
 // drag & drop (ПК): на список слева = перенос (Ctrl — копия), на игру в своём списке = порядок
