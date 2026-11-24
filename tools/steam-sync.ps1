@@ -10,7 +10,7 @@
   Windows (DPAPI) — прочитать их можно только под твоей учёткой на этом ПК.
   Пароль Steam скрипту не нужен и не запрашивается.
 #>
-param([switch]$Export, [switch]$Reset, [int]$MaxNew = 400)
+param([switch]$Export, [switch]$Reset, [int]$MaxNew = 5000)
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $utf8 = New-Object Text.UTF8Encoding $false
