@@ -5,12 +5,18 @@
     без параметров  — выгрузить библиотеку и коллекции Steam в репо (Steam можно не закрывать)
     -Export         — записать списки приложения в коллекции Steam (Steam должен быть ЗАКРЫТ)
     -Reset          — заново ввести настройки
+    -Url steamlists://export | steamlists://sync — так его запускают кнопки приложения
+
+  При каждом запуске скрипт копирует себя в %APPDATA%\steam-lists и регистрирует
+  ссылку steamlists:// (только для текущего пользователя, без прав админа), чтобы
+  кнопка «💾 В Steam» в приложении могла его запустить.
 
   Настройки хранятся в %APPDATA%\steam-lists\config.json. Токен и ключ зашифрованы
   Windows (DPAPI) — прочитать их можно только под твоей учёткой на этом ПК.
   Пароль Steam скрипту не нужен и не запрашивается.
 #>
-param([switch]$Export, [switch]$Reset, [int]$MaxNew = 5000)
+param([switch]$Export, [switch]$Reset, [int]$MaxNew = 5000, [string]$Url = '')
+if ($Url -match 'export') { $Export = $true }
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $utf8 = New-Object Text.UTF8Encoding $false
@@ -49,6 +55,39 @@ if ($Reset -or $bad -or !(Test-Path $cfgPath)) {
 $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
 $repo = $cfg.repo; $ghTok = Unprotect $cfg.token; $steamKey = Unprotect $cfg.steamKey
 $ghHead = @{ Authorization = "Bearer $ghTok"; Accept = 'application/vnd.github+json'; 'User-Agent' = 'steam-lists' }
+
+# ---------- ссылка steamlists:// для кнопок приложения ----------
+try {
+  $self = Join-Path $dir 'steam-sync.ps1'
+  if ($PSCommandPath -and ($PSCommandPath -ne $self)) { Copy-Item $PSCommandPath $self -Force }
+  $runCmd = Join-Path $dir 'run.cmd'
+  [IO.File]::WriteAllText($runCmd, "@echo off`r`npowershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0steam-sync.ps1`" -Url %1`r`npause`r`n", (New-Object Text.ASCIIEncoding))
+  $cls = 'HKCU:\Software\Classes\steamlists'
+  foreach ($k in @($cls, "$cls\shell", "$cls\shell\open", "$cls\shell\open\command")) { if (!(Test-Path $k)) { New-Item -Path $k | Out-Null } }
+  Set-ItemProperty $cls -Name '(default)' -Value 'URL:Steam Lists'
+  Set-ItemProperty $cls -Name 'URL Protocol' -Value ''
+  Set-ItemProperty "$cls\shell\open\command" -Name '(default)' -Value "`"$runCmd`" `"%1`""
+} catch { Write-Host "Не смог зарегистрировать кнопку приложения: $($_.Exception.Message)" -ForegroundColor Yellow }
+
+function GhSend($method, $url, $obj) {
+  Invoke-RestMethod -Method $method -Uri $url -Headers $ghHead -Body ($utf8.GetBytes(($obj | ConvertTo-Json -Depth 8 -Compress))) -ContentType 'application/json; charset=utf-8'
+}
+# много файлов одним коммитом (Git Data API): $files = @{ 'путь' = 'текст' }
+function GhPushFiles($files, $msg) {
+  $api = "https://api.github.com/repos/$repo"
+  $br = (Invoke-RestMethod $api -Headers $ghHead).default_branch
+  for ($try = 0; $try -lt 3; $try++) {
+    try {
+      $head = (Invoke-RestMethod "$api/git/ref/heads/$br" -Headers $ghHead).object.sha
+      $base = (Invoke-RestMethod "$api/git/commits/$head" -Headers $ghHead).tree.sha
+      $entries = @($files.GetEnumerator() | ForEach-Object { @{ path = $_.Key; mode = '100644'; type = 'blob'; content = $_.Value } })
+      $tree = GhSend Post "$api/git/trees" @{ base_tree = $base; tree = $entries }
+      $c = GhSend Post "$api/git/commits" @{ message = $msg; tree = $tree.sha; parents = @($head) }
+      GhSend Patch "$api/git/refs/heads/$br" @{ sha = $c.sha } | Out-Null
+      return
+    } catch { if ($try -eq 2) { throw }; Start-Sleep 3 }
+  }
+}
 
 function GhGet($path) {
   try { $r = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/contents/$path" -Headers $ghHead }
@@ -100,7 +139,16 @@ function ReadCollections {
 
 # ======================================================================
 if ($Export) {
-  if (Get-Process steam -ErrorAction SilentlyContinue) { throw "Закрой Steam полностью (трей → Выход) и запусти снова." }
+  $steamExe = Join-Path $steam 'steam.exe'; $wasRunning = $false
+  if (Get-Process steam -ErrorAction SilentlyContinue) {
+    Write-Host "Запись списков в Steam. Steam сейчас открыт: закрою его, запишу коллекции и запущу снова." -ForegroundColor Cyan
+    Read-Host "Enter — продолжить (закрой открытые игры), Ctrl+C — отмена" | Out-Null
+    $wasRunning = $true
+    Start-Process $steamExe -ArgumentList '-shutdown'
+    $t = 0; while ((Get-Process steam -ErrorAction SilentlyContinue) -and $t -lt 90) { Start-Sleep 1; $t++ }
+    if (Get-Process steam -ErrorAction SilentlyContinue) { throw "Steam не закрылся за 90 сек. Закрой вручную (трей → Выход) и нажми кнопку снова." }
+    Start-Sleep 2
+  }
   if (!(Test-Path $nsFile)) { throw "Не найден файл коллекций: $nsFile" }
   $lf = GhGet 'lists.json'; if (!$lf) { throw "В репо нет lists.json — сначала создай списки в приложении." }
   $bak = Join-Path $dir ("backup\cloud-storage-namespace-1." + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.json')
@@ -135,7 +183,8 @@ if ($Export) {
   [IO.File]::WriteAllText($nsFile, $json, $utf8)
   if (Test-Path $nsVerFile) { [IO.File]::WriteAllText($nsVerFile, "[[1,`"$ver`"]]", $utf8) }
   if ($listsChanged) { GhPut 'lists.json' ($lf.data | ConvertTo-Json -Depth 6) 'steam-sync: id коллекций Steam' }
-  Write-Host "Готово: записано списков в Steam: $n. Запусти Steam и проверь коллекции." -ForegroundColor Green
+  Write-Host "Готово: записано списков в Steam: $n. Проверь коллекции в Steam." -ForegroundColor Green
+  if ($wasRunning) { Write-Host "Запускаю Steam…"; Start-Process $steamExe }
   Write-Host "Если что-то не так: закрой Steam и скопируй бэкап обратно в $nsFile"
   exit
 }
@@ -225,23 +274,79 @@ foreach ($id in $imgTodo) {
 }
 Write-Progress -Activity 'Обложки' -Completed
 
-# 4) ачивки (только с ключом; обновляются у игр, в которые играл с прошлого раза)
-if ($steamKey) {
-  $need = @($games.Values | Where-Object { $_.hours -gt 0 -and (!$meta["$($_.appid)"] -or $meta["$($_.appid)"].achLast -ne $_.last) })
-  if ($need.Count) { Write-Host "Ачивки: обновляю $($need.Count) игр" }
-  $k = 0
-  foreach ($g in $need) {
-    $k++; Write-Progress -Activity 'Ачивки' -Status "$k / $($need.Count)" -PercentComplete (100 * $k / $need.Count)
-    $id = "$($g.appid)"; $ach = $null
+# 4) карточки игр: описание из магазина + все ачивки (иконки, редкость, дата) → games/<appid>.json
+#    первый раз долго (все игры), дальше — только новые и те, в которые играл с прошлого раза
+$gdir = Join-Path $dir 'games'; New-Item -ItemType Directory -Force -Path $gdir | Out-Null
+$pendPath = Join-Path $dir 'pending.json'
+$pending = New-Object 'System.Collections.Generic.HashSet[string]'
+if (Test-Path $pendPath) { foreach ($x in @(Get-Content $pendPath -Raw | ConvertFrom-Json)) { if ($x) { [void]$pending.Add([string]$x) } } }
+function SavePending { [IO.File]::WriteAllText($pendPath, '[' + (($pending | ForEach-Object { '"' + $_ + '"' }) -join ',') + ']', $utf8) }
+$work = New-Object System.Collections.ArrayList
+foreach ($g in $games.Values) {
+  $id = "$($g.appid)"; $f = Join-Path $gdir "$id.json"; $d = $null
+  if (Test-Path $f) { try { $d = [IO.File]::ReadAllText($f, $utf8) | ConvertFrom-Json } catch {} }
+  $needInfo = !$d -or !$d.info
+  $needAch = [bool]$steamKey -and (!$d -or $null -eq $d.achLast -or ([int64]$d.achLast -ne [int64]$g.last))
+  if ($needInfo -or $needAch) { [void]$work.Add(@($g, $d, $needInfo, $needAch)) }
+}
+$total = [math]::Min($work.Count, $MaxNew)
+if ($total) { Write-Host "Карточки игр и ачивки: $($work.Count) игр (~2-3 сек на игру; первый раз долго, дальше только изменения)" }
+$k = 0
+foreach ($w in ($work | Select-Object -First $MaxNew)) {
+  $g = $w[0]; $d = $w[1]; $needInfo = $w[2]; $needAch = $w[3]; $id = "$($g.appid)"
+  $k++; Write-Progress -Activity 'Карточки игр и ачивки' -Status "$k / $total" -PercentComplete (100 * $k / $total)
+  $out = [ordered]@{ appid = $g.appid; name = $g.name; info = $null; ach = @(); achLast = $null; updated = (Get-Date).ToUniversalTime().ToString('o') }
+  if ($d) { if ($d.name) { $out.name = $d.name }; $out.info = $d.info; $out.ach = @($d.ach | Where-Object { $_ }); $out.achLast = $d.achLast }
+  if ($needInfo) {
     try {
-      $a = Invoke-RestMethod "https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/?key=$steamKey&steamid=$id64&appid=$id"
-      if ($a.playerstats.achievements) { $all = @($a.playerstats.achievements); $ach = @(@($all | Where-Object { $_.achieved -eq 1 }).Count, $all.Count) }
-    } catch {}
+      $s = Invoke-RestMethod "https://store.steampowered.com/api/appdetails?appids=$id&l=russian&cc=ru"
+      $sd = $s.$id
+      $inf = [ordered]@{ desc = ''; dev = @(); pub = @(); release = ''; mc = $null; site = ''; shots = @() }
+      if ($sd.success) {
+        $x = $sd.data; $out.name = $x.name
+        $inf.desc = [string]$x.short_description; $inf.release = [string]$x.release_date.date; $inf.site = [string]$x.website
+        $inf.dev = @($x.developers | Where-Object { $_ }); $inf.pub = @($x.publishers | Where-Object { $_ })
+        if ($x.metacritic) { $inf.mc = [int]$x.metacritic.score }
+        $inf.shots = @($x.screenshots | Select-Object -First 6 | ForEach-Object { $_.path_thumbnail })
+      }
+      $out.info = $inf
+    } catch { Start-Sleep 30 }   # магазин ограничил частоту — эта игра догрузится в следующий раз
+    Start-Sleep -Milliseconds 1500
+  }
+  if ($needAch) {
+    $list = @($out.ach)
+    if (!$list.Count) {
+      try {
+        $sc = Invoke-RestMethod "https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/?key=$steamKey&appid=$id&l=russian"
+        $list = @($sc.game.availableGameStats.achievements | Where-Object { $_ } | ForEach-Object {
+          [pscustomobject][ordered]@{ id = $_.name; n = $_.displayName; d = [string]$_.description; i = $_.icon; g = $_.icongray; h = [int]$_.hidden; p = $null; t = 0 } })
+      } catch {}
+    }
+    if ($list.Count) {
+      try {
+        $gp = Invoke-RestMethod "https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?gameid=$id"
+        $pm = @{}; foreach ($x in @($gp.achievementpercentages.achievements)) { $pm[[string]$x.name] = [math]::Round([double]$x.percent, 1) }
+        foreach ($a in $list) { if ($pm.ContainsKey([string]$a.id)) { $a.p = $pm[[string]$a.id] } }
+      } catch {}
+      if ($g.hours -gt 0) {
+        try {
+          $pa = Invoke-RestMethod "https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/?key=$steamKey&steamid=$id64&appid=$id"
+          $um = @{}; foreach ($x in @($pa.playerstats.achievements)) { if ($x.achieved -eq 1) { $um[[string]$x.apiname] = [math]::Max([int64]$x.unlocktime, [int64]1) } }
+          foreach ($a in $list) { $a.t = $(if ($um.ContainsKey([string]$a.id)) { $um[[string]$a.id] } else { 0 }) }
+        } catch {}
+      }
+    }
+    $out.ach = $list; $out.achLast = $g.last
+    $ach = $null; if ($list.Count -and $g.hours -gt 0) { $ach = @(@($list | Where-Object { $_.t -gt 0 }).Count, $list.Count) }
     if (!$meta[$id]) { $meta[$id] = [pscustomobject]@{ t = 0 } }
     $meta[$id] | Add-Member -Force ach $ach; $meta[$id] | Add-Member -Force achLast $g.last
   }
-  Write-Progress -Activity 'Ачивки' -Completed
+  [IO.File]::WriteAllText((Join-Path $gdir "$id.json"), ($out | ConvertTo-Json -Depth 6 -Compress), $utf8)
+  [void]$pending.Add($id)
+  if ($k % 25 -eq 0) { $meta | ConvertTo-Json -Depth 5 | Set-Content $metaPath -Encoding UTF8; SavePending }
 }
+Write-Progress -Activity 'Карточки игр и ачивки' -Completed
+SavePending
 $meta | ConvertTo-Json -Depth 5 | Set-Content $metaPath -Encoding UTF8
 
 # 5) собрать и отправить
@@ -254,4 +359,20 @@ $lib = [ordered]@{ version = 1; steamid = $id64; source = $(if ($fromApi) { 'api
 GhPut 'library.json' ($lib | ConvertTo-Json -Depth 6 -Compress) "steam-sync: библиотека ($($games.Count) игр)"
 GhPut 'steam-collections.json' $scJson 'steam-sync: коллекции Steam'
 Write-Host "Готово: в репо отправлено $($games.Count) игр и $($col.list.Count) коллекций." -ForegroundColor Green
+
+# 6) карточки игр — пачками по 60 файлов, одним коммитом каждая
+if ($pending.Count) {
+  $ids = @($pending); Write-Host "Отправляю карточки игр: $($ids.Count)"
+  try {
+    for ($i = 0; $i -lt $ids.Count; $i += 60) {
+      $batch = @($ids[$i..([math]::Min($i + 59, $ids.Count - 1))])
+      Write-Progress -Activity 'Отправка карточек' -Status "$i / $($ids.Count)" -PercentComplete (100 * $i / $ids.Count)
+      $files = @{}; foreach ($id in $batch) { $f = Join-Path $gdir "$id.json"; if (Test-Path $f) { $files["games/$id.json"] = [IO.File]::ReadAllText($f, $utf8) } }
+      if ($files.Count) { GhPushFiles $files "steam-sync: карточки игр ($($files.Count))" }
+      foreach ($id in $batch) { [void]$pending.Remove($id) }; SavePending
+    }
+    Write-Progress -Activity 'Отправка карточек' -Completed
+    Write-Host "Карточки отправлены." -ForegroundColor Green
+  } catch { Write-Host "Карточки отправлены не все ($($pending.Count) осталось) — догрузятся при следующем запуске. $($_.Exception.Message)" -ForegroundColor Yellow }
+}
 if ($todo.Count -gt $MaxNew) { Write-Host "Жанры получены не для всех ($($todo.Count - $MaxNew) осталось) — запусти ещё раз позже." -ForegroundColor Yellow }

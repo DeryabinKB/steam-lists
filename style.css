@@ -122,3 +122,57 @@ dialog:has(.help){max-width:640px}
 #bg i.blur{filter:blur(18px) saturate(1.2)}
 #bg::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,#0f141b44,#121a2488 60%)}
 header,#wrap{position:relative;z-index:1}
+#steamBtn{white-space:nowrap;background:linear-gradient(180deg,#5c7e10,#3e5a0b);border-color:#6f9a14;color:#e6f5c8}
+#steamBtn:hover{border-color:#a4d007}
+.g button.inf{flex:none;border:0;background:none;color:var(--dim);font-size:18px;padding:4px 6px;opacity:.6}
+.g:hover button.inf{opacity:1}.g button.inf:hover{color:var(--hi)}
+.g .ach{cursor:pointer}
+dialog#game{padding:0;max-width:820px;width:94vw;max-height:92vh;overflow:auto;border-color:#2f4f70}
+.gload{padding:60px;text-align:center;color:var(--dim)}
+.ghero{position:relative;height:230px;overflow:hidden;background:#0b1118}
+.ghero img{width:100%;height:100%;object-fit:cover}
+.ghero::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 30%,#171a21 100%)}
+.gtitle{position:absolute;left:20px;right:60px;bottom:12px;z-index:1;color:var(--dim);font-size:13px}
+.gtitle h3{margin:0 0 4px;font-size:26px;color:#fff;text-shadow:0 2px 10px #000}
+.gtitle .mc{color:#9fd04b}
+.gx{position:absolute;top:10px;right:10px;z-index:2;background:#0009;border:0;border-radius:50%;width:34px;height:34px;padding:0}
+.gbody{padding:6px 20px 20px}
+.gdesc{margin:8px 0 12px;line-height:1.5}
+.gstats{display:flex;gap:16px;flex-wrap:wrap;color:var(--dim);font-size:13px;margin-bottom:6px}.gstats b{color:#fff}
+.bar.big{height:7px;background:#0b1118;border-radius:4px;overflow:hidden;margin-bottom:12px}
+.bar.big i{display:block;height:100%;background:linear-gradient(90deg,#4c8bc0,var(--hi))}
+.glinks{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
+.glinks a{font-size:13px;text-decoration:none;color:var(--txt);background:var(--card);border:1px solid #3a536f;border-radius:6px;padding:5px 10px}
+.glinks a:hover{border-color:var(--hi)}
+.glinks a.primary{background:linear-gradient(180deg,#75c3f5,#4793c7);color:#0b1520;border-color:transparent;font-weight:600}
+.glists{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin:8px 0}
+.glists .lab{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#5d7186;margin-right:4px}
+.glists .lt{font-size:12px;padding:2px 9px;border-radius:11px;border:1px solid #2a3f5a;cursor:pointer;color:var(--dim)}
+.glists .lt.on{background:#2d3f2a;border-color:#4d6b3a;color:#a8d08d}
+.shots{display:flex;gap:6px;overflow-x:auto;margin:10px 0}
+.shots img{height:96px;border-radius:5px;display:block}
+.achs{margin-top:10px}
+.ahead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;position:sticky;top:0;background:var(--bg2);padding:6px 0;z-index:1}
+.ahead h4{margin:0;color:#fff;font-size:16px;margin-right:auto}
+.af{display:flex;gap:4px}.af button,.ahead select{font-size:12px;padding:3px 9px}
+.af button.on{background:var(--hi);color:#0b1520;border-color:var(--hi)}
+.ar{display:flex;align-items:center;gap:12px;padding:6px 8px;border-radius:6px;background:#ffffff06;margin:3px 0}
+.ar img{width:44px;height:44px;border-radius:4px;flex:none;background:#0b1118}
+.ar:not(.done) img{opacity:.55}
+.ar.done{background:#3d6a8f22}
+.ar .at{flex:1;min-width:0}.ar .at b{display:block;color:#fff;font-weight:500}
+.ar .at span{font-size:12px;color:var(--dim)}
+.ar .ap{width:110px;text-align:right;font-size:13px;color:var(--dim);flex:none}
+.ar .ap small{display:block;font-size:11px;color:#8fc76a}
+.ar .ap.r2{color:#c9a4ff}.ar .ap.r1{color:#f2c75c;font-weight:600}
+.ar .pin{border:0;background:none;padding:4px;filter:grayscale(1);opacity:.35}
+.ar .pin:hover{opacity:.8}.ar .pin.on{filter:none;opacity:1}
+.goal{background:#ffffff08;border-radius:10px;padding:8px 10px;margin:8px 0}
+.goal .gh{display:flex;align-items:center;gap:12px;cursor:pointer;padding:2px 0 6px}
+.goal .gh img{width:120px;height:45px;object-fit:cover;border-radius:5px}
+.goal .gh b{color:#fff;font-size:15px;flex:1}.goal .gh .gp{color:var(--dim);font-size:13px}
+@media (max-width:700px){
+  #steamBtn{display:none}
+  .ghero{height:150px}.gtitle h3{font-size:20px}
+  .ar .ap{width:64px}
+}

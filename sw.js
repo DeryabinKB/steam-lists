@@ -6,7 +6,7 @@ self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 self.addEventListener('fetch', e => {
   const u = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
-  if (u.hostname.endsWith('steamstatic.com')) {
+  if (u.hostname.endsWith('steamstatic.com') || u.hostname.endsWith('akamaihd.net')) {
     e.respondWith(caches.open(IMG).then(async c => {
       const hit = await c.match(e.request, { ignoreSearch: true });
       if (hit) return hit;

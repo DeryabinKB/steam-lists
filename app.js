@@ -20,6 +20,7 @@ const state = {
   shas: {},
   dirty: false,
   tags: new Set(),           // активные теги-фильтры
+  pins: LS.get('pins', {}),  // закреплённые ачивки: {appid: {apiname: {n,d,i}}}
 };
 
 /* ---------- GitHub storage ---------- */
@@ -59,14 +60,14 @@ async function store(path, obj, msg) {
 function status(t) { $('#status').textContent = t; }
 let saveTimer;
 function changed() {
-  state.dirty = true; LS.set('lists', state.lists); status('● не сохранено');
+  state.dirty = true; LS.set('lists', state.lists); LS.set('pins', state.pins); status('● не сохранено');
   clearTimeout(saveTimer); saveTimer = setTimeout(save, 1500);
 }
 async function save() {
   if (!cfg.repo || !cfg.token) { status('нет репо — только локально'); return; }
   try {
     status('сохраняю…');
-    await store('lists.json', { version: 1, updated: new Date().toISOString(), lists: state.lists }, 'Обновлены списки');
+    await store('lists.json', { version: 1, updated: new Date().toISOString(), lists: state.lists, pins: state.pins }, 'Обновлены списки');
     state.dirty = false; status('✓ сохранено');
   } catch (e) { status('⚠ ' + e.message); }
 }
@@ -78,7 +79,7 @@ async function pull() {
     status('загружаю…');
     const [lib, lists] = await Promise.all([load('library.json'), load('lists.json')]);
     if (lib) { LS.set('library', lib); setLibrary(lib); }
-    if (lists && !state.dirty) { state.lists = lists.lists || []; LS.set('lists', state.lists); }
+    if (lists && !state.dirty) { state.lists = lists.lists || []; state.pins = lists.pins || {}; LS.set('lists', state.lists); LS.set('pins', state.pins); }
     status(lib ? '✓' : 'нет library.json — запусти steam-sync на ПК');
   } catch (e) { status('⚠ ' + e.message); }
   render();
@@ -179,6 +180,7 @@ function render() {
   sec('Библиотека');
   item('all', 'Вся библиотека', state.games.size, false, '🎮');
   item('none', 'Без списка', [...state.games.keys()].filter(i => !inAny.has(i)).length, false, '📥');
+  item('goals', 'Цели', pinCount(), false, '🎯');
   sec('Мои списки');
   manual().forEach((l, i) => item(l.id, l.name, l.items.length, true, `<b>${i + 1}</b>`));
   const add = document.createElement('button'); add.className = 'add'; add.textContent = '+ Новый список'; add.dataset.e = 'add';
@@ -213,6 +215,8 @@ function render() {
     tb.append(ctl);
   }
 
+  $('#tagbar').hidden = state.view === 'goals';
+  if (state.view === 'goals') { renderGoals(); LS.set('view', state.view); return; }
   const ids = visible(); state.visible = ids;
   for (const id of [...state.sel]) if (!ids.includes(id)) state.sel.delete(id);
   // шапка: название и сводка по тому, что сейчас видно
@@ -246,7 +250,7 @@ function render() {
       <div class="t"><div class="nm"></div><div class="meta"></div><div class="chips"></div></div>
       <div class="ach">${p !== null ? `<div class="lbl">${p === 100 ? '🏆 ' : ''}${g.ach[0]}/${g.ach[1]} · ${p}%</div><div class="bar"><i style="width:${p}%"></i></div>` : ''}</div>
       <div class="num"><b>${g.hours ? g.hours.toFixed(1) : '—'}</b>${g.hours ? ' ч' : ''}<small>${date(g.last)}</small></div>
-      <a class="play" href="steam://run/${id}" title="Запустить в Steam">▶</a>`;
+      <button class="inf" title="Об игре и ачивки">ⓘ</button><a class="play" href="steam://run/${id}" title="Запустить в Steam">▶</a>`;
     d.querySelector('.nm').textContent = g.name;
     d.querySelector('.meta').textContent = (g.genres || []).slice(0, 3).join(' · ');
     const ch = d.querySelector('.chips');
@@ -368,6 +372,10 @@ $('#side').addEventListener('click', e => {
 });
 $('#list').addEventListener('click', e => {
   if (e.target.closest('a')) return;
+  const gi = e.target.closest('.g');
+  if (gi && (e.target.closest('.inf') || e.target.closest('.ach'))) { openGame(+gi.dataset.id, !!e.target.closest('.ach')); return; }
+  const gp = e.target.closest('[data-open]'); if (gp) { openGame(+gp.dataset.open, true); return; }
+  const up = e.target.closest('[data-unpin]'); if (up) { const [a, k] = up.dataset.unpin.split('|'); togglePin(+a, k); render(); return; }
   const tg = e.target.dataset.tag;
   if (tg) { state.tags.has(tg) ? state.tags.delete(tg) : state.tags.add(tg); render(); return; }
   const g = e.target.closest('.g'); if (!g) return;
@@ -421,7 +429,8 @@ $('#list').addEventListener('drop', e => {
   reorder(dragIds, g ? +g.dataset.id : null);
 });
 
-$('#q').addEventListener('input', () => render());
+$('#list').addEventListener('dblclick', e => { const g = e.target.closest('.g'); if (g && !e.target.closest('a,button')) openGame(+g.dataset.id); });
+$('#q').addEventListener('input', () => { if (state.view === 'goals') state.view = 'all'; render(); });
 $('#sort').addEventListener('change', () => render());
 $('#helpBtn').onclick = () => $('#help').showModal();
 $('#menuBtn').onclick = () => $('#side').classList.toggle('open');
@@ -432,6 +441,8 @@ $('#settings').addEventListener('close', () => {
   cfg.token = $('#sToken').value.trim(); LS.set('cfg', cfg); pull();
 });
 $('#reload').onclick = () => { $('#settings').close(); pull(); };
+$('#pcSync').onclick = () => { location.href = 'steamlists://sync'; };
+$('#steamBtn').onclick = toSteam;
 $('#exportJson').onclick = () => {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify({ lists: state.lists }, null, 1)], { type: 'application/json' }));
@@ -453,6 +464,124 @@ $('#importSteam').onclick = async () => {
 };
 window.addEventListener('beforeunload', e => { if (state.dirty) { save(); e.preventDefault(); } });
 document.addEventListener('visibilitychange', () => { if (document.hidden && state.dirty) save(); else if (!document.hidden && !state.dirty) pull(); });
+
+/* ---------- карточка игры и ачивки ---------- */
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+const unent = s => { const t = document.createElement('textarea'); t.innerHTML = s || ''; return t.value; };
+const det = new Map();   // appid -> Promise(карточка | null)
+function getDet(id) {
+  if (!det.has(id)) det.set(id, cfg.repo && cfg.token ? load(`games/${id}.json`).catch(() => null) : Promise.resolve(null));
+  return det.get(id);
+}
+const pinCount = () => Object.values(state.pins).reduce((a, o) => a + Object.keys(o).length, 0);
+function togglePin(appid, a) {
+  const o = state.pins[appid] || (state.pins[appid] = {});
+  if (o[a.id || a]) delete o[a.id || a]; else o[a.id] = { n: a.n, d: a.d, i: a.i };
+  if (!Object.keys(o).length) delete state.pins[appid];
+  changed();
+}
+const fmtDate = t => t > 1 ? new Date(t * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+const rareCls = p => p == null ? '' : p < 5 ? 'r1' : p < 20 ? 'r2' : '';
+function achRow(appid, a, pinned) {
+  const done = a.t > 0, hid = a.h && !done && !a.d;
+  return `<div class="ar${done ? ' done' : ''}"><img loading="lazy" src="${esc(done ? a.i : (a.g || a.i))}" alt="">
+    <div class="at"><b>${esc(a.n)}</b><span>${hid ? '<i>Скрытое достижение</i>' : esc(a.d)}</span></div>
+    <div class="ap ${rareCls(a.p)}">${a.p != null ? a.p + '%' : ''}<small>${done ? '✓ ' + fmtDate(a.t) : ''}</small></div>
+    <button class="pin${pinned ? ' on' : ''}" data-pin="${esc(a.id)}" title="${pinned ? 'Открепить' : 'Закрепить в «Цели»'}">📌</button></div>`;
+}
+let gameOpen = null;
+async function openGame(id, toAch) {
+  const g = state.games.get(id) || { appid: id, name: `App ${id}` };
+  gameOpen = { id, filter: 'all', sort: 'steam' };
+  const dlg = $('#game'); dlg.innerHTML = '<div class="gd"><div class="gload">Загружаю…</div></div>';
+  if (!dlg.open) dlg.showModal();
+  const d = await getDet(id); if (gameOpen?.id !== id) return;
+  gameOpen.d = d; drawGame(g, d);
+  if (toAch) dlg.querySelector('.achs')?.scrollIntoView({ block: 'start' });
+}
+function drawGame(g, d) {
+  const arr = x => x == null ? [] : [].concat(x);
+  const id = g.appid, inf = { ...(d?.info || {}) }, ach = arr(d?.ach), st = gameOpen;
+  inf.dev = arr(inf.dev); inf.pub = arr(inf.pub); inf.shots = arr(inf.shots);
+  const done = ach.filter(a => a.t > 0).length, p = ach.length ? Math.round(100 * done / ach.length) : null;
+  const steamid = LS.get('library', {})?.steamid;
+  const link = (u, t) => `<a href="${esc(u)}" target="_blank" rel="noopener">${t}</a>`;
+  const by = [inf.dev?.join(', '), inf.pub?.length && inf.pub.join(', ') !== inf.dev?.join(', ') ? inf.pub.join(', ') : '', inf.release].filter(Boolean).map(esc).join(' · ');
+  let list = ach.filter(a => st.filter === 'all' || (st.filter === 'todo' ? !(a.t > 0) : st.filter === 'done' ? a.t > 0 : state.pins[id]?.[a.id]));
+  if (st.sort === 'rare') list = list.slice().sort((a, b) => (a.p ?? 101) - (b.p ?? 101));
+  if (st.sort === 'common') list = list.slice().sort((a, b) => (b.p ?? -1) - (a.p ?? -1));
+  if (st.sort === 'date') list = list.slice().sort((a, b) => (b.t || 0) - (a.t || 0));
+  const inLists = manual().map(l => `<span class="lt${l.items.includes(id) ? ' on' : ''}" data-lt="${esc(l.id)}">${esc(l.name)}</span>`).join('');
+  $('#game').innerHTML = `<div class="gd">
+    <div class="ghero"><img src="${CDN}/${id}/library_hero.jpg" onerror="this.onerror=null;this.src='${CDN}/${id}/header.jpg'" alt="">
+      <div class="gtitle"><h3>${esc(d?.name || g.name)}</h3><div>${by}${inf.mc ? ` · <span class="mc">Metacritic ${inf.mc}</span>` : ''}</div></div>
+      <button class="gx" data-x>✕</button></div>
+    <div class="gbody">
+      ${inf.desc ? `<p class="gdesc">${esc(unent(inf.desc))}</p>` : ''}
+      <div class="gstats"><span><b>${g.hours ? g.hours.toFixed(1) : '0'}</b> ч</span>${g.last ? `<span>последний запуск <b>${fmtDate(g.last)}</b></span>` : '<span>не запускал</span>'}
+        ${p !== null ? `<span>ачивки <b>${done}/${ach.length}</b> · ${p}%</span>` : ''}</div>
+      ${p !== null ? `<div class="bar big"><i style="width:${p}%"></i></div>` : ''}
+      <div class="glinks"><a class="primary" href="steam://run/${id}">▶ Играть</a>
+        ${link(`https://store.steampowered.com/app/${id}`, 'Магазин')}
+        ${link(steamid ? `https://steamcommunity.com/profiles/${steamid}/stats/${id}/achievements` : `https://steamcommunity.com/stats/${id}/achievements`, 'Ачивки в Steam')}
+        ${link(`https://steamcommunity.com/app/${id}/guides`, 'Гайды')}
+        ${link(`https://steamdb.info/app/${id}/`, 'SteamDB')}
+        ${link(`https://www.pcgamingwiki.com/api/appid.php?appid=${id}`, 'PCGamingWiki')}
+        ${link(`https://howlongtobeat.com/?q=${encodeURIComponent(g.name || '')}`, 'Сколько проходить')}
+        ${inf.site ? link(inf.site, 'Сайт') : ''}</div>
+      ${inLists ? `<div class="glists"><span class="lab">Списки</span>${inLists}</div>` : ''}
+      ${inf.shots?.length ? `<div class="shots">${inf.shots.map(u => `<a href="${esc(u.replace('.600x338', ''))}" target="_blank"><img loading="lazy" src="${esc(u)}" alt=""></a>`).join('')}</div>` : ''}
+      <div class="achs"><div class="ahead"><h4>Достижения ${ach.length ? `${done}/${ach.length}` : ''}</h4>
+        ${ach.length ? `<span class="af">${[['all', 'Все'], ['todo', 'Не получены'], ['done', 'Получены'], ['pin', '📌']].map(([k, t]) => `<button data-f="${k}" class="${st.filter === k ? 'on' : ''}">${t}</button>`).join('')}</span>
+        <select data-s>${[['steam', 'Порядок Steam'], ['rare', 'Сначала редкие'], ['common', 'Сначала частые'], ['date', 'Недавно полученные']].map(([k, t]) => `<option value="${k}"${st.sort === k ? ' selected' : ''}>${t}</option>`).join('')}</select>` : ''}</div>
+        ${!d ? `<p class="hint">Нет подробностей об игре. Запусти на ПК новый <code>sync.cmd</code> (ZIP в «?»), он соберёт описания и ачивки.</p>`
+          : ach.length ? list.map(a => achRow(id, a, !!state.pins[id]?.[a.id])).join('') || '<p class="hint">Пусто.</p>' : '<p class="hint">У игры нет достижений.</p>'}
+      </div>
+    </div></div>`;
+}
+$('#game').addEventListener('click', e => {
+  const dlg = $('#game'), st = gameOpen; if (!st) return;
+  if (e.target === dlg || e.target.closest('[data-x]')) { dlg.close(); return; }
+  const g = state.games.get(st.id) || { appid: st.id, name: `App ${st.id}` };
+  const f = e.target.closest('[data-f]'); if (f) { st.filter = f.dataset.f; drawGame(g, st.d); return; }
+  const pn = e.target.closest('[data-pin]');
+  if (pn) { const a = [].concat(st.d.ach).find(x => x.id === pn.dataset.pin); togglePin(st.id, a); const on = !!state.pins[st.id]?.[a.id]; pn.classList.toggle('on', on); pn.title = on ? 'Открепить' : 'Закрепить в «Цели»'; render(); return; }
+  const lt = e.target.closest('[data-lt]');
+  if (lt) { const l = manual().find(x => x.id === lt.dataset.lt); if (!l) return; if (l.items.includes(st.id)) l.items = l.items.filter(i => i !== st.id); else l.items.push(st.id); lt.classList.toggle('on'); changed(); render(); }
+});
+$('#game').addEventListener('change', e => { if (e.target.matches('[data-s]')) { gameOpen.sort = e.target.value; drawGame(state.games.get(gameOpen.id) || { appid: gameOpen.id }, gameOpen.d); } });
+$('#game').addEventListener('close', () => { gameOpen = null; });
+
+// «Цели»: все закреплённые ачивки по играм; статус «получено» — из свежих карточек
+function renderGoals() {
+  const box = $('#list'); state.visible = []; state.sel.clear(); $('#selbar').hidden = true; setBg(null);
+  const ids = Object.keys(state.pins).map(Number).sort((a, b) => (state.games.get(b)?.last || 0) - (state.games.get(a)?.last || 0));
+  $('#head').innerHTML = `<h2>🎯 Цели</h2><div class="stats"><span><b>${pinCount()}</b> закреплено в <b>${ids.length}</b> играх</span></div>`;
+  if (!ids.length) { box.innerHTML = '<div class="empty">📌 Здесь будут закреплённые ачивки.<br>Открой игру (ⓘ или двойной клик) и нажми 📌 у нужных.</div>'; return; }
+  box.innerHTML = ids.map(id => {
+    const g = state.games.get(id) || { name: `App ${id}` }, pins = state.pins[id];
+    return `<div class="goal" data-gid="${id}"><div class="gh" data-open="${id}"><img src="${CDN}/${id}/capsule_184x69.jpg" onerror="this.style.visibility='hidden'" alt=""><b>${esc(g.name)}</b><span class="gp"></span></div>
+      ${Object.entries(pins).map(([k, a]) => `<div class="ar" data-a="${esc(k)}"><img loading="lazy" src="${esc(a.i)}" alt=""><div class="at"><b>${esc(a.n)}</b><span>${esc(a.d)}</span></div><div class="ap"><small></small></div><button class="pin on" data-unpin="${id}|${esc(k)}" title="Открепить">📌</button></div>`).join('')}</div>`;
+  }).join('');
+  for (const id of ids) getDet(id).then(d => {
+    const el = box.querySelector(`.goal[data-gid="${id}"]`); if (!el || !d?.ach) return; d.ach = [].concat(d.ach);
+    const done = d.ach.filter(a => a.t > 0).length; el.querySelector('.gp').textContent = `${done}/${d.ach.length}`;
+    for (const r of el.querySelectorAll('.ar')) {
+      const a = d.ach.find(x => x.id === r.dataset.a); if (!a) continue;
+      if (a.t > 0) { r.classList.add('done'); r.querySelector('small').textContent = '✓ получено ' + fmtDate(a.t); }
+      if (a.p != null) { const ap = r.querySelector('.ap'); ap.classList.add(...[rareCls(a.p)].filter(Boolean)); ap.prepend(a.p + '%'); }
+    }
+  });
+}
+
+// «💾 В Steam»: сохранить в репо и запустить выгрузку на этом ПК через ссылку steamlists://
+async function toSteam() {
+  if (!confirm('Записать списки в коллекции Steam?\n\nОткроется окно на ПК: Steam закроется, списки запишутся, Steam запустится снова. Перед записью делается бэкап.')) return;
+  clearTimeout(saveTimer); if (state.dirty) await save();
+  if (state.dirty) { alert('Списки не сохранились в репо (см. статус справа сверху). Проверь сеть и попробуй ещё раз.'); return; }
+  location.href = 'steamlists://export';
+  status('если окно не открылось — один раз запусти новый sync.cmd');
+}
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 pull();
