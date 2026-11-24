@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Steam Lists</title>
+<link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#171a21">
+</head>
+<body>
+<header>
+  <button id="menuBtn" class="icon" title="Списки">☰</button>
+  <input id="q" type="search" placeholder="Поиск: текст, tag:RPG, genre:Action, h>10, ach<100, played, new">
+  <select id="sort">
+    <option value="order">Мой порядок</option>
+    <option value="name">По названию</option>
+    <option value="hours">По часам</option>
+    <option value="last">Последний запуск</option>
+    <option value="ach">По ачивкам</option>
+  </select>
+  <span id="status" title="Синхронизация"></span>
+  <button id="settingsBtn" class="icon" title="Настройки">⚙</button>
+</header>
+<div id="wrap">
+  <nav id="side"></nav>
+  <main>
+    <div id="tagbar"></div>
+    <div id="selbar" hidden>
+      <b id="selCount"></b>
+      <button data-act="move">Переместить в…</button>
+      <button data-act="copy">Копировать в…</button>
+      <button data-act="remove">Убрать из списка</button>
+      <button data-act="top">↑ В начало</button>
+      <button data-act="bottom">↓ В конец</button>
+      <button data-act="all">Выделить все</button>
+      <button data-act="none">Снять</button>
+    </div>
+    <div id="list"></div>
+  </main>
+</div>
+
+<dialog id="pick"><form method="dialog"><h3 id="pickTitle"></h3><div id="pickList"></div><button value="">Отмена</button></form></dialog>
+
+<dialog id="settings"><form method="dialog">
+  <h3>Настройки</h3>
+  <p class="hint">Хранятся только в этом браузере. В коде и в репозитории их нет.</p>
+  <label>Репозиторий с данными<input id="sRepo" placeholder="логин/steam-lists-data"></label>
+  <label>Токен GitHub (доступ только к репо данных, Contents: Read and write)<input id="sToken" type="password" autocomplete="off"></label>
+  <p class="hint">Создать: github.com/settings/personal-access-tokens/new → Only select repositories → твой репо данных → Contents: Read and write.</p>
+  <div class="row">
+    <button value="save" class="primary">Сохранить</button>
+    <button value="cancel">Закрыть</button>
+  </div>
+  <hr>
+  <div class="row">
+    <button type="button" id="importSteam">Импорт коллекций Steam</button>
+    <button type="button" id="exportJson">Скачать бэкап списков</button>
+    <button type="button" id="reload">Перезагрузить данные</button>
+  </div>
+  <p class="hint" id="libInfo"></p>
+</form></dialog>
+
+<script src="app.js"></script>
+</body>
+</html>
