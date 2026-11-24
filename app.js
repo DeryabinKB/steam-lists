@@ -454,5 +454,6 @@ $('#importSteam').onclick = async () => {
 window.addEventListener('beforeunload', e => { if (state.dirty) { save(); e.preventDefault(); } });
 document.addEventListener('visibilitychange', () => { if (document.hidden && state.dirty) save(); else if (!document.hidden && !state.dirty) pull(); });
 
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 pull();
 if (!cfg.repo && !LS.get('helped', false)) { LS.set('helped', true); $('#help').showModal(); }
