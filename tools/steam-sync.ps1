@@ -32,10 +32,16 @@ function AskSecret($prompt) {
 }
 
 # ---------- настройки ----------
-if ($Reset -or !(Test-Path $cfgPath)) {
+$bad = $false; if (Test-Path $cfgPath) { $c0 = Get-Content $cfgPath -Raw | ConvertFrom-Json; $bad = !$c0.repo -or !$c0.token }
+if ($Reset -or $bad -or !(Test-Path $cfgPath)) {
   Write-Host "Первичная настройка Steam Lists" -ForegroundColor Cyan
-  $repo = Read-Host "Репо с данными (логин/steam-lists-data)"
-  $tok = AskSecret "Токен GitHub для репо данных (ввод скрыт)"
+  do { $repo = (Read-Host "Репо с данными (логин/steam-lists-data)").Trim() -replace '^https://github\.com/', '' -replace '/$', '' } while ($repo -notmatch '^[\w.-]+/[\w.-]+$')
+  do {
+    $tok = (AskSecret "Токен GitHub для репо данных (ввод скрыт, вставка — правой кнопкой)").Trim()
+    $ok = $false
+    if ($tok) { try { Invoke-RestMethod -Uri "https://api.github.com/repos/$repo" -Headers @{ Authorization = "Bearer $tok"; 'User-Agent' = 'steam-lists' } | Out-Null; $ok = $true } catch { Write-Host "Токен не подходит к $repo, попробуй ещё раз." -ForegroundColor Red } }
+  } while (!$ok)
+  Write-Host "Репо и токен в порядке." -ForegroundColor Green
   Write-Host "Ключ Steam API (steamcommunity.com/dev/apikey). Нужен для полной библиотеки и ачивок."
   $key = AskSecret "Ключ Steam API (Enter — без ключа)"
   @{ repo = $repo.Trim(); token = (Protect $tok.Trim()); steamKey = (Protect $key.Trim()) } | ConvertTo-Json | Set-Content -Path $cfgPath -Encoding UTF8
