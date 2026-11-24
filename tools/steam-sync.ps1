@@ -209,6 +209,22 @@ foreach ($id in ($todo | Select-Object -First $MaxNew)) {
 }
 Write-Progress -Activity 'Жанры и теги' -Completed
 
+# 3b) обложки: у новых игр стандартной картинки нет — берём адрес из магазина (один раз на игру)
+$imgTodo = @($games.Keys | Where-Object { $meta[$_] -and $null -eq $meta[$_].img })
+if ($imgTodo.Count) { Write-Host "Обложки: проверяю $($imgTodo.Count) игр" }
+$k = 0
+foreach ($id in $imgTodo) {
+  $k++; Write-Progress -Activity 'Обложки' -Status "$k / $($imgTodo.Count)" -PercentComplete (100 * $k / $imgTodo.Count)
+  $img = ''
+  try { Invoke-WebRequest -UseBasicParsing -Method Head "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/$id/capsule_184x69.jpg" | Out-Null }
+  catch {
+    try { $s = Invoke-RestMethod "https://store.steampowered.com/api/appdetails?appids=$id&filters=basic"; if ($s.$id.success) { $img = [string]$s.$id.data.header_image } } catch {}
+    Start-Sleep -Milliseconds 1500
+  }
+  $meta[$id] | Add-Member -Force img $img
+}
+Write-Progress -Activity 'Обложки' -Completed
+
 # 4) ачивки (только с ключом; обновляются у игр, в которые играл с прошлого раза)
 if ($steamKey) {
   $need = @($games.Values | Where-Object { $_.hours -gt 0 -and (!$meta["$($_.appid)"] -or $meta["$($_.appid)"].achLast -ne $_.last) })
@@ -232,7 +248,7 @@ $meta | ConvertTo-Json -Depth 5 | Set-Content $metaPath -Encoding UTF8
 $list = foreach ($g in $games.Values) {
   $m = $meta["$($g.appid)"]
   $name = if ($g.name) { $g.name } elseif ($m.name) { $m.name } else { "App $($g.appid)" }
-  [ordered]@{ appid = $g.appid; name = $name; hours = $g.hours; last = $g.last; genres = @($m.genres); tags = @($m.tags); ach = $(if ($m.ach) { @($m.ach) } else { $null }) }
+  [ordered]@{ appid = $g.appid; name = $name; hours = $g.hours; last = $g.last; genres = @($m.genres); tags = @($m.tags); img = $(if ($m.img) { $m.img } else { $null }); ach = $(if ($m.ach) { @($m.ach) } else { $null }) }
 }
 $lib = [ordered]@{ version = 1; steamid = $id64; source = $(if ($fromApi) { 'api' } else { 'local' }); updated = (Get-Date).ToUniversalTime().ToString('o'); games = @($list) }
 GhPut 'library.json' ($lib | ConvertTo-Json -Depth 6 -Compress) "steam-sync: библиотека ($($games.Count) игр)"

@@ -151,6 +151,14 @@ function visible() {
 }
 
 /* ---------- render ---------- */
+const CDN = 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps';
+// у новых игр картинки лежат по адресу с хэшем: capsule → header.jpg → адрес из магазина (g.img) → скрыть
+function imgFail(el, id) {
+  const st = +(el.dataset.st || 0); el.dataset.st = st + 1;
+  if (st === 0) el.src = `${CDN}/${id}/header.jpg`;
+  else if (st === 1 && el.dataset.alt) el.src = el.dataset.alt;
+  else { el.onerror = null; el.style.visibility = 'hidden'; }
+}
 function render() {
   const inAny = new Set(manual().flatMap(l => l.items));
   const side = $('#side'); side.innerHTML = '';
@@ -187,7 +195,7 @@ function render() {
     const d = document.createElement('div');
     d.className = 'g' + (state.sel.has(id) ? ' sel' : ''); d.dataset.id = id; d.draggable = true;
     const where = manual().filter(l => l.items.includes(id)).map(l => l.name);
-    d.innerHTML = `<img loading="lazy" alt="" src="https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${id}/capsule_184x69.jpg" onerror="this.style.visibility='hidden'">
+    d.innerHTML = `<img loading="lazy" alt="" src="${CDN}/${id}/capsule_184x69.jpg" data-alt="${g.img || ''}" onerror="imgFail(this, ${id})">
       <div class="t"><div class="nm"></div><div class="meta"></div>${p !== null ? `<div class="bar"><i style="width:${p}%"></i></div>` : ''}</div>
       <div class="num">${g.hours ? g.hours.toFixed(1) + ' ч' : '—'}${g.ach && g.ach[1] ? `<br>${g.ach[0]}/${g.ach[1]}` : ''}</div>
       <a class="play" href="steam://run/${id}" title="Запустить в Steam">▶</a>`;
