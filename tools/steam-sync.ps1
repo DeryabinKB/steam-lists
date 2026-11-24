@@ -388,6 +388,31 @@ function ReadLocalUser($appid) {
   } catch { return $null }
 }
 
+# кэш библиотеки клиента Steam (userdata\<акк>\config\librarycache\<appid>.json): там то, что Steam
+# показывает на странице игры — «получено N из M» и список неполученных. Обновляется, когда игру открывают в библиотеке.
+function FindAchObj($o, $depth) {
+  if ($null -eq $o -or $depth -gt 6) { return $null }
+  if ($o -is [string]) { if ($o.Length -gt 20 -and $o.Contains('nAchieved')) { try { return FindAchObj ($o | ConvertFrom-Json) ($depth + 1) } catch {} }; return $null }
+  if ($o -is [System.Collections.IEnumerable] -and $o -isnot [string]) { foreach ($x in $o) { $r = FindAchObj $x ($depth + 1); if ($r) { return $r } }; return $null }
+  if ($o -is [psobject]) {
+    $names = @($o.PSObject.Properties.Name)
+    if ($names -contains 'nAchieved' -and $names -contains 'nTotal') { return $o }
+    foreach ($n in $names) { $r = FindAchObj $o.$n ($depth + 1); if ($r) { return $r } }
+  }
+  return $null
+}
+function ReadLibCache($appid) {
+  $f = Join-Path $udir "librarycache\$appid.json"
+  if (!(Test-Path $f)) { return $null }
+  try {
+    $a = FindAchObj ([IO.File]::ReadAllText($f, $utf8) | ConvertFrom-Json) 0
+    if (!$a) { return $null }
+    $un = New-Object 'System.Collections.Generic.HashSet[string]'; foreach ($x in @($a.vecUnachieved)) { if ($x.strID) { [void]$un.Add([string]$x.strID) } }
+    $tm = @{}; foreach ($x in @($a.vecHighlight) + @($a.vecAchievedHidden)) { if ($x.strID -and $x.rtUnlocked) { $tm[[string]$x.strID] = [int64]$x.rtUnlocked } }
+    return @{ done = [int]$a.nAchieved; total = [int]$a.nTotal; unach = $un; times = $tm; when = (Get-Item $f).LastWriteTimeUtc }
+  } catch { return $null }
+}
+
 # 4a) восстановление (один раз): 24.11 Steam перестал отдавать ачивки закрытого профиля, и старый
 #     скрипт записал нули — берём максимум «получено» из истории library.json в репо данных
 $recFlag = Join-Path $dir 'ach-restored.flag'
@@ -424,12 +449,19 @@ $pending = New-Object 'System.Collections.Generic.HashSet[string]'
 if (Test-Path $pendPath) { foreach ($x in @(Get-Content $pendPath -Raw | ConvertFrom-Json)) { if ($x) { [void]$pending.Add([string]$x) } } }
 function SavePending { [IO.File]::WriteAllText($pendPath, '[' + (($pending | ForEach-Object { '"' + $_ + '"' }) -join ',') + ']', $utf8) }
 $work = New-Object System.Collections.ArrayList
+$srcStat = @{}
+$libFlag = Join-Path $dir 'libcache-v1.flag'; $forceLib = !(Test-Path $libFlag)   # первый запуск с чтением кэша библиотеки — проверить все
 foreach ($g in $games.Values) {
   $id = "$($g.appid)"; $f = Join-Path $gdir "$id.json"; $d = $null
   if (Test-Path $f) { try { $d = [IO.File]::ReadAllText($f, $utf8) | ConvertFrom-Json } catch {} }
   $needInfo = !$d -or !$d.info
   $needAch = [bool]$steamKey -and (!$d -or $null -eq $d.achLast -or ([int64]$d.achLast -ne [int64]$g.last))
   # прогресс ещё не собирали, а файл схемы Steam есть
+  # кэш библиотеки Steam новее карточки — перечитать
+  if (!$needAch -and $steamKey -and $d -and $g.hours -gt 0 -and $d.src -ne 'api' -and $d.updated) {
+    $lcf = Join-Path $udir "librarycache\$id.json"
+    if ((Test-Path $lcf) -and ($forceLib -or (Get-Item $lcf).LastWriteTimeUtc -gt ([datetime]$d.updated).ToUniversalTime())) { $needAch = $true }
+  }
   # ачивки ещё не брали из локальных файлов Steam, а они есть
   if (!$needAch -and $steamKey -and $d -and $g.hours -gt 0 -and $d.src -ne 'api' -and $d.src -ne 'local' -and (Test-Path (Join-Path $steam "appcache\stats\UserGameStats_$($acc)_$id.bin"))) { $needAch = $true }
   if (!$needAch -and $steamKey -and $d -and @($d.ach).Count -and $null -eq $d.prog -and (Test-Path (Join-Path $steam "appcache\stats\UserGameStatsSchema_$id.bin"))) { $needAch = $true }
@@ -460,7 +492,7 @@ foreach ($w in ($work | Select-Object -First $MaxNew)) {
     Start-Sleep -Milliseconds 1500
   }
   if ($needAch) {
-    $src = 'none'
+    $src = 'none'; $libDone = 0
     $list = @($out.ach)
     if (!$list.Count) {
       try {
@@ -486,8 +518,25 @@ foreach ($w in ($work | Select-Object -First $MaxNew)) {
           $loc = ReadLocalUser $id
           if ($loc) { foreach ($a in $list) { $a.t = $(if ($loc.unl.ContainsKey([string]$a.id)) { $loc.unl[[string]$a.id] } else { 0 }) }; $out.stats = $loc.stats; $src = 'local' }
         }
-        # не вышло ни так ни так — оставляем то, что было (не затираем нулями)
-        $out.src = $src
+        # кэш библиотеки Steam: точный счёт «N из M»; если список неполученных полный — и какие именно
+        $libDone = 0
+        if ($src -ne 'api') {
+          $lc = ReadLibCache $id
+          if ($lc -and $lc.total -eq $list.Count) {
+            $cur = @($list | Where-Object { $_.t -gt 0 }).Count
+            if ($lc.done -gt $cur) {
+              if ($lc.unach.Count -eq ($lc.total - $lc.done)) {
+                foreach ($a in $list) {
+                  if ($lc.unach.Contains([string]$a.id)) { $a.t = 0 }
+                  elseif (!($a.t -gt 0)) { $a.t = $(if ($lc.times.ContainsKey([string]$a.id)) { $lc.times[[string]$a.id] } else { 1 }) }
+                }
+                $src = 'lib'
+              } else { $libDone = $lc.done; if ($src -eq 'none') { $src = 'libcount' } }
+            }
+          }
+        }
+        # не вышло никак — оставляем то, что было (не затираем нулями)
+        $out.src = $src; $srcStat[$src] = 1 + [int]$srcStat[$src]
       }
     }
     if ($list.Count) {
@@ -504,7 +553,7 @@ foreach ($w in ($work | Select-Object -First $MaxNew)) {
     if (!$meta[$id]) { $meta[$id] = [pscustomobject]@{ t = 0 } }
     $ach = $meta[$id].ach
     if ($list.Count -and $g.hours -gt 0 -and $src -ne 'none') {
-      $done = @($list | Where-Object { $_.t -gt 0 }).Count
+      $done = [math]::Max(@($list | Where-Object { $_.t -gt 0 }).Count, $libDone)
       # локальные файлы могут быть неполными — меньше уже известного не ставим
       if ($src -eq 'api' -or !$ach -or $done -ge [int]@($ach)[0]) { $ach = @($done, $list.Count) }
     }
@@ -516,6 +565,9 @@ foreach ($w in ($work | Select-Object -First $MaxNew)) {
 }
 Write-Progress -Activity 'Карточки игр и ачивки' -Completed
 SavePending
+if ($forceLib -and $total -le $MaxNew) { Set-Content $libFlag 'ok' }
+if ($srcStat.Count) { Write-Host ("Ачивки взяты: Steam API {0}, кэш библиотеки Steam {1}, только счёт {2}, файлы статистики ПК {3}, нет данных {4}" -f [int]$srcStat['api'], [int]$srcStat['lib'], [int]$srcStat['libcount'], [int]$srcStat['local'], [int]$srcStat['none']) }
+
 $meta | ConvertTo-Json -Depth 5 | Set-Content $metaPath -Encoding UTF8
 
 # 5) собрать и отправить
