@@ -441,6 +441,8 @@ $('#settingsBtn').onclick = () => { $('#sRepo').value = cfg.repo; $('#sToken').v
 $('#genAccess').onclick = () => { const a = [...crypto.getRandomValues(new Uint8Array(18))].map(b => b.toString(16).padStart(2, '0')).join(''); $('#sAccess').value = a; $('#sAccess').type = 'text'; $('#genOut').textContent = 'скопируй его в секрет ACCESS'; };
 $('#settings').addEventListener('close', () => {
   if ($('#settings').returnValue !== 'save') return;
+  const lk = $('#sLink').value; $('#sLink').value = '';
+  if (lk.trim()) { const c = parseSetup(lk); if (!c) return alert('Не распознал ссылку из QR.'); applyCfg(c); pull(); return; }
   cfg.repo = $('#sRepo').value.trim().replace(/^https:\/\/github\.com\//, '').replace(/\/$/, '');
   cfg.token = $('#sToken').value.trim(); cfg.worker = $('#sWorker').value.trim().replace(/\/+$/, ''); cfg.access = $('#sAccess').value.trim();
   if (cfg.worker && !/^https:\/\//.test(cfg.worker)) cfg.worker = 'https://' + cfg.worker;
@@ -718,18 +720,26 @@ $('#qrBtn').onclick = async () => {
   $('#qr').innerHTML = q.createSvgTag({ cellSize: 8, margin: 4 });
   setTimeout(() => { box.hidden = true; $('#qr').innerHTML = ''; }, 120000);   // спрятать через 2 минуты
 };
-(function applySetup() {
-  let h = location.hash; try { h = decodeURIComponent(h); } catch {}
-  if (!/^#(s|setup)=/.test(h)) return;
-  history.replaceState(null, '', location.pathname);   // убрать токен из адресной строки и истории
-  const m = h.match(/^#s=([^~]+)~([^~]+)~([^~]*)~([^~]*)$/), m2 = h.match(/^#setup=([\w-]+)$/);
+// разбор ссылки/кода с настройками: «…#s=репо~токен~воркер~пароль» (или старый #setup=)
+function parseSetup(str) {
+  let h = String(str || '').trim(); try { h = decodeURIComponent(h); } catch {}
+  const i = h.search(/#(s|setup)=/); if (i < 0) return null; h = h.slice(i);
+  const m = h.match(/^#s=([^~\s]+)~([^~\s]+)~([^~\s]*)~([^~\s]*)/), m2 = h.match(/^#setup=([\w-]+)/);
   try {
-    const c = m ? { repo: m[1], token: m[2], worker: m[3] ? 'https://' + m[3] : '', access: m[4] } : unb64u(m2[1]);
-    if (!c.repo || !c.token) throw 0;
-    Object.assign(cfg, { repo: c.repo.trim(), token: c.token.trim(), worker: (c.worker || '').trim(), access: (c.access || '').trim() });
-    LS.set('cfg', cfg); LS.set('helped', true);
-    setTimeout(() => status('✓ настройки перенесены'), 50);
-  } catch { alert('Ссылка с настройками не распозналась. Открой её в Chrome (не во встроенном браузере сканера) или введи настройки в ⚙ вручную.'); }
+    const c = m ? { repo: m[1], token: m[2], worker: m[3] ? 'https://' + m[3] : '', access: m[4] } : m2 ? unb64u(m2[1]) : null;
+    return c && c.repo && c.token ? c : null;
+  } catch { return null; }
+}
+function applyCfg(c) {
+  Object.assign(cfg, { repo: c.repo.trim(), token: c.token.trim(), worker: (c.worker || '').trim(), access: (c.access || '').trim() });
+  LS.set('cfg', cfg); LS.set('helped', true);
+}
+(function applySetup() {
+  if (!/#(s|setup)=/.test(location.href)) return;
+  const c = parseSetup(location.href);
+  history.replaceState(null, '', location.pathname);   // убрать токен из адресной строки и истории
+  if (c) { applyCfg(c); setTimeout(() => status('✓ настройки перенесены'), 50); }
+  else alert('Ссылка с настройками не распозналась. Скопируй текст из сканера и вставь в ⚙ → «Ссылка из QR».');
 })();
 
 // клик по затемнению вокруг окна — закрыть (для всех окон)
