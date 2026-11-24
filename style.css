@@ -213,4 +213,4 @@ dialog#game{padding:0;max-width:820px;width:94vw;max-height:92vh;overflow:auto;b
 .apg .bar i{display:block;height:100%;background:linear-gradient(90deg,#4c8bc0,var(--hi))}
 .apg small{font-size:11px;color:#9fb3c6;white-space:nowrap}
 #pcBtn{white-space:nowrap}
-#qr svg{background:#fff;border-radius:8px;display:block;margin:8px auto;max-width:100%;height:auto}
+#qr svg{background:#fff;border-radius:8px;display:block;margin:8px auto;width:min(420px,100%);height:auto}

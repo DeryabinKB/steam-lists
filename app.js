@@ -712,16 +712,18 @@ $('#qrBtn').onclick = async () => {
   const box = $('#qrBox'); box.hidden = !box.hidden; if (box.hidden) { $('#qr').innerHTML = ''; return; }
   if (!window.qrcode) await new Promise((ok, no) => { const sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js'; sc.integrity = 'sha384-lQXOAyZwHXE55JFyrOMB7nY2Wv+m5ZWNtJcHrd1rceRQXAYNLak8ukN5TjBTcIwz'; sc.crossOrigin = 'anonymous'; sc.onload = ok; sc.onerror = no; document.head.append(sc); }).catch(() => {});
   if (!window.qrcode) { $('#qr').textContent = 'Не загрузился генератор QR, проверь сеть.'; return; }
-  const url = location.origin + location.pathname + '#setup=' + b64u({ repo: cfg.repo, token: cfg.token, worker: cfg.worker || '', access: cfg.access || '' });
+  // компактно, чтобы QR был крупным и легко читался: репо~токен~хост воркера~пароль
+  const url = location.origin + location.pathname + '#s=' + [cfg.repo, cfg.token, (cfg.worker || '').replace(/^https:\/\//, ''), cfg.access || ''].join('~');
   const q = qrcode(0, 'L'); q.addData(url); q.make();
-  $('#qr').innerHTML = q.createSvgTag({ cellSize: 4, margin: 4 });
+  $('#qr').innerHTML = q.createSvgTag({ cellSize: 8, margin: 4 });
   setTimeout(() => { box.hidden = true; $('#qr').innerHTML = ''; }, 120000);   // спрятать через 2 минуты
 };
 (function applySetup() {
-  const m = location.hash.match(/^#setup=([\w-]+)$/); if (!m) return;
+  const m = location.hash.match(/^#s=([^~]+)~([^~]+)~([^~]*)~([^~]*)$/), m2 = location.hash.match(/^#setup=([\w-]+)$/);
+  if (!m && !m2) return;
   history.replaceState(null, '', location.pathname);   // убрать токен из адресной строки и истории
   try {
-    const c = unb64u(m[1]);
+    const c = m ? { repo: decodeURIComponent(m[1]), token: m[2], worker: m[3] ? 'https://' + m[3] : '', access: m[4] } : unb64u(m2[1]);
     if (!c.repo || !c.token) throw 0;
     if (!confirm(`Применить настройки Steam Lists?\nРепо: ${c.repo}${c.worker ? '\nWorker: да' : ''}`)) return;
     Object.assign(cfg, { repo: c.repo, token: c.token, worker: c.worker || '', access: c.access || '' }); LS.set('cfg', cfg); LS.set('helped', true);
