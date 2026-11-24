@@ -331,7 +331,7 @@ $('#side').addEventListener('click', e => {
   }
   if (ed === 'del') { if (confirm(`Удалить список «${l.name}»? Игры останутся в библиотеке.`)) { state.lists.splice(i, 1); if (state.view === l.id) state.view = 'all'; changed(); render(); } return; }
   if (ed === 'up') { if (i > 0) { state.lists.splice(i - 1, 0, state.lists.splice(i, 1)[0]); changed(); render(); } return; }
-  state.view = it.dataset.id; state.sel.clear(); $('#side').classList.remove('open');
+  state.view = it.dataset.id; state.sel.clear(); $('#side').classList.remove('open'); $('#scroll').scrollTop = 0;
   if (!curList() && $('#sort').value === 'order') $('#sort').value = 'name';
   if (curList()) $('#sort').value = 'order';
   render();

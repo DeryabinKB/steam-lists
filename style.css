@@ -63,7 +63,8 @@ main{position:relative}
 #selbar .sp{width:8px}
 #selbar b{color:#fff;margin-right:6px}
 #selbar[hidden]{display:none}
-#list{flex:1;overflow:auto;padding:6px 12px 90px}
+#scroll{flex:1;overflow:auto;min-height:0}
+#list{padding:6px 12px 90px}
 .g{display:flex;align-items:center;gap:14px;padding:6px 10px 6px 6px;margin:4px 0;border-radius:8px;user-select:none;border:1px solid transparent;background:#ffffff08;transition:background .12s,transform .12s}
 .g:hover{background:#ffffff12;border-color:#2f4f70}
 .g.sel{background:#3d6a8f88;border-color:var(--hi)}
