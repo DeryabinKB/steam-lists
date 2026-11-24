@@ -301,6 +301,7 @@ $('#list').addEventListener('drop', e => {
 
 $('#q').addEventListener('input', () => render());
 $('#sort').addEventListener('change', () => render());
+$('#helpBtn').onclick = () => $('#help').showModal();
 $('#menuBtn').onclick = () => $('#side').classList.toggle('open');
 $('#settingsBtn').onclick = () => { $('#sRepo').value = cfg.repo; $('#sToken').value = cfg.token; $('#settings').showModal(); };
 $('#settings').addEventListener('close', () => {
@@ -332,3 +333,4 @@ window.addEventListener('beforeunload', e => { if (state.dirty) { save(); e.prev
 document.addEventListener('visibilitychange', () => { if (document.hidden && state.dirty) save(); else if (!document.hidden && !state.dirty) pull(); });
 
 pull();
+if (!cfg.repo && !LS.get('helped', false)) { LS.set('helped', true); $('#help').showModal(); }

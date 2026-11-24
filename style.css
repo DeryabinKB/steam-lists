@@ -56,3 +56,9 @@ dialog .row{display:flex;gap:8px;flex-wrap:wrap}
   .g img{width:80px;height:30px}
   .g .num{width:56px}
 }
+dialog:has(.help){max-width:640px}
+.help{max-height:80vh;overflow:auto}
+.help h4{margin:14px 0 4px;color:var(--hi)}
+.help li{margin:4px 0}
+.help code{background:#22344a;padding:1px 5px;border-radius:4px}
+.help a{color:var(--hi)}

@@ -20,6 +20,7 @@
     <option value="ach">По ачивкам</option>
   </select>
   <span id="status" title="Синхронизация"></span>
+  <button id="helpBtn" class="icon" title="Помощь">?</button>
   <button id="settingsBtn" class="icon" title="Настройки">⚙</button>
 </header>
 <div id="wrap">
@@ -59,6 +60,39 @@
     <button type="button" id="reload">Перезагрузить данные</button>
   </div>
   <p class="hint" id="libInfo"></p>
+</form></dialog>
+
+<dialog id="help"><form method="dialog" class="help">
+  <h3>Как пользоваться</h3>
+  <h4>Настройка (один раз)</h4>
+  <ol>
+    <li><b>Репо для данных.</b> На GitHub: «+» → New repository → имя <code>steam-lists-data</code>, <b>Private</b> → Create. Там будут твои списки и библиотека.</li>
+    <li><b>Токен.</b> <a href="https://github.com/settings/personal-access-tokens/new" target="_blank">github.com/settings/personal-access-tokens/new</a> → Expiration: год → Repository access: <i>Only select</i> → только репо данных → Permissions: <b>Contents — Read and write</b> → Generate. Сохрани в менеджер паролей. Никому не отправляй.</li>
+    <li><b>Приложение.</b> ⚙ → репо <code>логин/steam-lists-data</code> + токен → Сохранить. На каждом устройстве (ПК, телефон) один раз.</li>
+    <li><b>Библиотека Steam.</b> На ПК: <a href="https://github.com/DeryabinKB/steam-lists/archive/refs/heads/main.zip">скачать ZIP</a> → распаковать → папка <code>tools</code> → <code>sync.cmd</code>. Спросит репо, тот же токен и ключ Steam API (необязательно, Enter — пропустить).</li>
+    <li><b>Коллекции Steam → списки.</b> ⚙ → «Импорт коллекций Steam».</li>
+  </ol>
+  <h4>Ключ Steam API — нужен ли</h4>
+  <p>Без ключа скрипт видит только игры, которые ты запускал, установленные и из коллекций. С ключом — всю библиотеку и ачивки. Ключ: <a href="https://steamcommunity.com/dev/apikey" target="_blank">steamcommunity.com/dev/apikey</a> (домен — любой, например localhost). Ключ остаётся только на твоём ПК, зашифрованным. Пароль Steam не нужен нигде.</p>
+  <h4>Списки</h4>
+  <ul>
+    <li>Слева: «Вся библиотека», «Без списка» (ещё не разобранные) и твои списки. ✎ — переименовать, ▲ — поднять выше, ✕ — удалить (игры не пропадут).</li>
+    <li><b>Выделение:</b> клик по игре; Shift+клик — диапазон; «Выделить все» — всё, что сейчас видно по фильтру.</li>
+    <li><b>Перенос:</b> перетащи выделенное на список слева, или «Переместить в…». Игра уходит из текущего списка (из «Вся библиотека» — из всех списков). С <b>Ctrl</b> или «Копировать в…» — остаётся и там, и там.</li>
+    <li><b>Порядок:</b> в списке с сортировкой «Мой порядок» перетаскивай игры или жми «↑ В начало / ↓ В конец».</li>
+    <li><b>Телефон:</b> ☰ — списки; перетаскивания нет, выделяй и жми «Переместить в…».</li>
+    <li>▶ — запустить игру в Steam.</li>
+  </ul>
+  <h4>Поиск</h4>
+  <p><code>witcher</code> — по названию · <code>tag:RPG</code> · <code>genre:Экшен</code> · <code>h&gt;10</code> — больше 10 часов · <code>ach&lt;100</code> — ачивки не все · <code>played</code> / <code>new</code> — запускал / не запускал. Можно сочетать: <code>tag:coop new</code>. Теги под поиском кликабельны.</p>
+  <h4>Синхронизация</h4>
+  <ul>
+    <li>Списки сохраняются сами через пару секунд (справа сверху «✓ сохранено») в твой репо данных. На другом устройстве обновятся при открытии.</li>
+    <li>Библиотека (часы, ачивки, новые игры) обновляется, когда запускаешь <code>sync.cmd</code> на ПК.</li>
+    <li><b>В Steam:</b> закрой Steam (трей → Выход) → <code>export-to-steam.cmd</code>. Списки станут коллекциями Steam. Перед этим делается бэкап. Порядок игр Steam не хранит.</li>
+    <li>Бэкап списков в файл: ⚙ → «Скачать бэкап списков». Плюс вся история изменений есть в репо данных на GitHub.</li>
+  </ul>
+  <button value="" class="primary">Понятно</button>
 </form></dialog>
 
 <script src="app.js"></script>
