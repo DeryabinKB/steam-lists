@@ -434,15 +434,19 @@ $('#q').addEventListener('input', () => { if (state.view === 'goals') state.view
 $('#sort').addEventListener('change', () => render());
 $('#helpBtn').onclick = () => $('#help').showModal();
 $('#menuBtn').onclick = () => $('#side').classList.toggle('open');
-$('#settingsBtn').onclick = () => { $('#sRepo').value = cfg.repo; $('#sToken').value = cfg.token; $('#settings').showModal(); };
+$('#settingsBtn').onclick = () => { $('#sRepo').value = cfg.repo; $('#sToken').value = cfg.token; $('#sWorker').value = cfg.worker || ''; $('#sAccess').value = cfg.access || ''; $('#genOut').textContent = ''; $('#settings').showModal(); };
+$('#genAccess').onclick = () => { const a = [...crypto.getRandomValues(new Uint8Array(18))].map(b => b.toString(16).padStart(2, '0')).join(''); $('#sAccess').value = a; $('#sAccess').type = 'text'; $('#genOut').textContent = 'скопируй его в секрет ACCESS'; };
 $('#settings').addEventListener('close', () => {
   if ($('#settings').returnValue !== 'save') return;
   cfg.repo = $('#sRepo').value.trim().replace(/^https:\/\/github\.com\//, '').replace(/\/$/, '');
-  cfg.token = $('#sToken').value.trim(); LS.set('cfg', cfg); pull();
+  cfg.token = $('#sToken').value.trim(); cfg.worker = $('#sWorker').value.trim().replace(/\/+$/, ''); cfg.access = $('#sAccess').value.trim();
+  if (cfg.worker && !/^https:\/\//.test(cfg.worker)) cfg.worker = 'https://' + cfg.worker;
+  $('#sAccess').type = 'password'; LS.set('cfg', cfg); pull();
 });
 $('#reload').onclick = () => { $('#settings').close(); pull(); };
 $('#pcSync').onclick = () => { location.href = 'steamlists://sync'; };
 $('#steamBtn').onclick = toSteam;
+$('#syncBtn').onclick = () => steamSync();
 $('#exportJson').onclick = () => {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify({ lists: state.lists }, null, 1)], { type: 'application/json' }));
@@ -572,6 +576,88 @@ function renderGoals() {
       if (a.p != null) { const ap = r.querySelector('.ap'); ap.classList.add(...[rareCls(a.p)].filter(Boolean)); ap.prepend(a.p + '%'); }
     }
   });
+}
+
+/* ---------- ⟳ обновление из Steam прямо в браузере (через Worker) ---------- */
+async function wk(path, params) {
+  const r = await fetch(`${cfg.worker}${path}?${new URLSearchParams(params)}`, { headers: { 'X-Access': cfg.access } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `Worker ${r.status}`);
+  return j;
+}
+async function ghApi(path, method = 'GET', body) {
+  const r = await fetch(`https://api.github.com/repos/${cfg.repo}${path ? '/' + path : ''}`, { method, cache: 'no-store',
+    headers: { Authorization: `Bearer ${cfg.token}`, Accept: 'application/vnd.github+json' }, body: body && JSON.stringify(body) });
+  if (!r.ok) throw new Error(`GitHub ${path.split('/')[0]}… ${r.status}`);
+  return r.json();
+}
+// много файлов одним коммитом (как в steam-sync.ps1)
+async function pushFiles(files, msg) {
+  const br = (await ghApi('')).default_branch;
+  for (let t = 0; ; t++) {
+    try {
+      const head = (await ghApi(`git/ref/heads/${br}`)).object.sha;
+      const base = (await ghApi(`git/commits/${head}`)).tree.sha;
+      const tree = await ghApi('git/trees', 'POST', { base_tree: base, tree: Object.entries(files).map(([path, content]) => ({ path, mode: '100644', type: 'blob', content })) });
+      const c = await ghApi('git/commits', 'POST', { message: msg, tree: tree.sha, parents: [head] });
+      await ghApi(`git/refs/heads/${br}`, 'PATCH', { sha: c.sha }); return;
+    } catch (e) { if (t >= 2) throw e; await new Promise(r => setTimeout(r, 2000)); }
+  }
+}
+let syncing = false;
+async function steamSync() {
+  if (syncing) return;
+  if (!cfg.repo || !cfg.token) return alert('Сначала ⚙: репо и токен GitHub.');
+  if (!cfg.worker || !cfg.access) { alert('Для ⟳ нужен Cloudflare Worker. Инструкция: «?» → «Обновление без ПК».'); $('#help').showModal(); return; }
+  const old = LS.get('library', null);
+  let steamid = old?.steamid;
+  if (!steamid) { steamid = (prompt('SteamID64 (17 цифр, 7656…). Его видно в адресе профиля или на steamid.io') || '').trim(); if (!/^\d{17}$/.test(steamid)) return; }
+  syncing = true; $('#syncBtn').classList.add('spin');
+  try {
+    status('Steam: библиотека…');
+    const owned = (await wk('/owned', { steamid })).games;
+    if (!owned.length) throw new Error('Steam вернул пустую библиотеку');
+    const prev = new Map((old?.games || []).map(g => [g.appid, g]));
+    const games = owned.map(o => { const p = prev.get(o.appid) || {}; return { appid: o.appid, name: o.name || p.name, hours: o.hours, last: o.last, genres: p.genres || [], tags: p.tags || [], img: p.img || null, ach: p.ach || null }; });
+    // что обновлять: новые игры и те, в которые играл с прошлого раза
+    const todo = games.filter(g => { const p = prev.get(g.appid); return !p || !(p.genres?.length || p.tags?.length) || p.last !== g.last; });
+    // необработанные игры сохраняем со старыми данными, чтобы прерванный ⟳ потом продолжил с них
+    const done = new Set(), todoIds = new Set(todo.map(g => g.appid));
+    const lib = () => ({ version: 1, steamid, source: 'api', updated: new Date().toISOString(),
+      games: games.map(g => !todoIds.has(g.appid) || done.has(g.appid) ? g : prev.get(g.appid)).filter(Boolean) });
+    let files = {}, n = 0, errs = 0;
+    let pend = [];
+    const flush = async () => {
+      if (!Object.keys(files).length && !pend.length) return;
+      status(`отправляю… ${n}/${todo.length}`);
+      if (Object.keys(files).length) await pushFiles(files, `⟳ карточки игр (${Object.keys(files).length})`);
+      files = {}; pend.forEach(id => done.add(id)); pend = [];
+      const L = lib(); await store('library.json', L, `⟳ библиотека (${n}/${todo.length})`); LS.set('library', L);
+    };
+    for (const g of todo) {
+      n++; status(`Steam: ${n}/${todo.length} · ${g.name}`);
+      const isNew = !prev.has(g.appid) || !(prev.get(g.appid).genres?.length || prev.get(g.appid).tags?.length);
+      let d;
+      try { d = await wk('/game', { appid: g.appid, steamid, played: g.hours > 0 ? 1 : '', tags: isNew ? 1 : '' }); }
+      catch (e) { errs++; if (errs > 20) { await flush().catch(() => {}); throw e; } continue; }
+      if (d.genres?.length) g.genres = d.genres;
+      if (d.tags?.length) g.tags = d.tags;
+      if (d.img && !g.img) g.img = d.img;
+      if (g.hours > 0 && d.ach.length && (d.playerOk || !g.ach)) g.ach = [d.ach.filter(a => a.t > 0).length, d.ach.length];
+      if (d.info || d.ach.length) {
+        files[`games/${g.appid}.json`] = JSON.stringify({ appid: g.appid, name: d.name || g.name, info: d.info || null, ach: d.ach, achLast: g.last, updated: new Date().toISOString() });
+        det.delete(g.appid);
+      }
+      pend.push(g.appid);
+      if (pend.length >= 40) await flush();
+      await new Promise(r => setTimeout(r, d.storeOk ? 900 : 5000));   // магазин Steam ограничивает частоту
+    }
+    await flush();
+    if (!todo.length) { const L = lib(); await store('library.json', L, `⟳ библиотека (${games.length} игр)`); LS.set('library', L); }
+    setLibrary(LS.get('library', null)); render();
+    status(`✓ обновлено: ${todo.length} игр` + (errs ? `, ошибок ${errs}` : ''));
+  } catch (e) { status('⚠ ' + e.message); alert('Обновление прервано: ' + e.message + '\nУже обработанное сохранено, следующий ⟳ продолжит.'); }
+  finally { syncing = false; $('#syncBtn').classList.remove('spin'); }
 }
 
 // «💾 В Steam»: сохранить в репо и запустить выгрузку на этом ПК через ссылку steamlists://

@@ -21,6 +21,7 @@
     <option value="ach">По ачивкам</option>
   </select>
   <span id="status" title="Синхронизация"></span>
+  <button id="syncBtn" class="icon" title="Обновить библиотеку и ачивки из Steam (через Worker)">⟳</button>
   <button id="steamBtn" title="Записать списки в коллекции Steam на этом ПК">💾 В Steam</button>
   <button id="helpBtn" class="icon" title="Помощь">?</button>
   <button id="settingsBtn" class="icon" title="Настройки">⚙</button>
@@ -56,6 +57,9 @@
   <label>Репозиторий с данными<input id="sRepo" placeholder="логин/steam-lists-data"></label>
   <label>Токен GitHub (доступ только к репо данных, Contents: Read and write)<input id="sToken" type="password" autocomplete="off"></label>
   <p class="hint">Создать: github.com/settings/personal-access-tokens/new → Only select repositories → твой репо данных → Contents: Read and write.</p>
+  <label>Адрес Worker (необязательно, для ⟳ без ПК)<input id="sWorker" placeholder="https://steam-lists.твой-логин.workers.dev"></label>
+  <label>Пароль Worker (секрет ACCESS)<input id="sAccess" type="password" autocomplete="off"></label>
+  <p class="hint">Как поставить Worker — в «?» → «Обновление без ПК». <button type="button" id="genAccess">🎲 Придумать пароль</button> <span id="genOut"></span></p>
   <div class="row">
     <button value="save" class="primary">Сохранить</button>
     <button value="cancel">Закрыть</button>
@@ -98,6 +102,15 @@
   </ul>
   <h4>Поиск</h4>
   <p><code>witcher</code> — по названию · <code>tag:RPG</code> · <code>genre:Экшен</code> · <code>h&gt;10</code> — больше 10 часов · <code>ach&lt;100</code> — ачивки не все · <code>played</code> / <code>new</code> — запускал / не запускал. Можно сочетать: <code>tag:coop new</code>. Теги под поиском кликабельны.</p>
+  <h4>Обновление без ПК (⟳)</h4>
+  <p>Кнопка ⟳ сверху обновляет библиотеку, часы и ачивки прямо из приложения, хоть с телефона. Steam не пускает браузер к своему API, поэтому нужна бесплатная прокладка Cloudflare Worker (один раз, ~5 минут):</p>
+  <ol>
+    <li><a href="https://dash.cloudflare.com" target="_blank">dash.cloudflare.com</a> (регистрация бесплатная) → <b>Workers &amp; Pages</b> → <b>Create</b> → Worker → имя <code>steam-lists</code> → <b>Deploy</b>.</li>
+    <li><b>Edit code</b> → удали всё → вставь код из <a href="https://github.com/DeryabinKB/steam-lists/blob/main/tools/worker.js" target="_blank">tools/worker.js</a> (кнопка «Copy raw file») → <b>Deploy</b>.</li>
+    <li>Worker → <b>Settings → Variables and Secrets → Add</b>, тип <b>Secret</b>: <code>STEAM_KEY</code> = ключ Steam API; ещё один <code>ACCESS</code> = пароль (⚙ → «🎲 Придумать пароль»). <b>Deploy</b>.</li>
+    <li>В ⚙ приложения: адрес Worker (виден на его странице, <code>https://….workers.dev</code>) и тот же пароль → Сохранить.</li>
+  </ol>
+  <p>Ключ Steam хранится только в Cloudflare, в приложение он не попадает. Без пароля Worker ничего не отдаёт. Первый раз ⟳ идёт долго (~1 сек на игру, держи вкладку открытой), дальше — только новые и сыгранные игры. Коллекции Steam читать и записывать по-прежнему может только ПК (<code>sync.cmd</code> / «💾 В Steam»).</p>
   <h4>Синхронизация</h4>
   <ul>
     <li>Списки сохраняются сами через пару секунд (справа сверху «✓ сохранено») в твой репо данных. На другом устройстве обновятся при открытии.</li>

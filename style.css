@@ -176,3 +176,5 @@ dialog#game{padding:0;max-width:820px;width:94vw;max-height:92vh;overflow:auto;b
   .ghero{height:150px}.gtitle h3{font-size:20px}
   .ar .ap{width:64px}
 }
+#syncBtn.spin{animation:spin 1s linear infinite;pointer-events:none}
+@keyframes spin{to{transform:rotate(360deg)}}

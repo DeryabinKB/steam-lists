@@ -6,6 +6,7 @@
     -Export         — записать списки приложения в коллекции Steam (Steam должен быть ЗАКРЫТ)
     -Reset          — заново ввести настройки
     -Url steamlists://export | steamlists://sync — так его запускают кнопки приложения
+    При запуске проверяет новую версию на GitHub и спрашивает, обновиться ли.
 
   При каждом запуске скрипт копирует себя в %APPDATA%\steam-lists и регистрирует
   ссылку steamlists:// (только для текущего пользователя, без прав админа), чтобы
@@ -24,6 +25,28 @@ $dir = Join-Path $env:APPDATA 'steam-lists'
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 $cfgPath = Join-Path $dir 'config.json'
 $metaPath = Join-Path $dir 'meta.json'
+
+# ---------- обновление скрипта: новая версия с GitHub, только с твоего согласия ----------
+if (!$env:SL_NOUPDATE -and $PSCommandPath) {
+  try {
+    $new = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 15 -Uri 'https://raw.githubusercontent.com/DeryabinKB/steam-lists/main/tools/steam-sync.ps1').RawContentStream.ToArray()
+    $cur = [IO.File]::ReadAllBytes($PSCommandPath)
+    if ($new.Length -gt 5000 -and [Convert]::ToBase64String($new) -ne [Convert]::ToBase64String($cur)) {
+      $why = ''
+      try { $c = @(Invoke-RestMethod -TimeoutSec 15 'https://api.github.com/repos/DeryabinKB/steam-lists/commits?path=tools/steam-sync.ps1&per_page=3'); $why = ($c | ForEach-Object { '  - ' + $_.commit.message.Split("`n")[0] + ' (' + $_.commit.author.name + ', ' + ([datetime]$_.commit.author.date).ToString('dd.MM HH:mm') + ')' }) -join "`n" } catch {}
+      Write-Host "Есть новая версия скрипта. Последние изменения:`n$why" -ForegroundColor Cyan
+      if ((Read-Host "Обновить? [Y/n]") -notmatch '^\s*[nNнН]') {
+        [IO.File]::WriteAllBytes($PSCommandPath, $new)
+        Write-Host "Обновлено, перезапускаю…" -ForegroundColor Green
+        $env:SL_NOUPDATE = '1'
+        $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath)
+        foreach ($kv in $PSBoundParameters.GetEnumerator()) { if ($kv.Value -is [switch]) { if ($kv.Value) { $a += "-$($kv.Key)" } } else { $a += "-$($kv.Key)"; $a += [string]$kv.Value } }
+        & powershell.exe @a
+        exit $LASTEXITCODE
+      }
+    }
+  } catch { Write-Host "Проверка обновлений не удалась (нет сети?), работаю на текущей версии." -ForegroundColor DarkGray }
+}
 
 function Protect([string]$s) { if (!$s) { return '' }; ConvertTo-SecureString $s -AsPlainText -Force | ConvertFrom-SecureString }
 function Unprotect([string]$s) {
