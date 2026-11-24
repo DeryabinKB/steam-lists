@@ -544,4 +544,6 @@ if ($pending.Count) {
     Write-Host "Карточки отправлены." -ForegroundColor Green
   } catch { Write-Host "Карточки отправлены не все ($($pending.Count) осталось) — догрузятся при следующем запуске. $($_.Exception.Message)" -ForegroundColor Yellow }
 }
+# запустили руками (не кнопкой из приложения) — открыть приложение
+if (!$Url) { try { Start-Process 'https://deryabinkb.github.io/steam-lists/' } catch {} }
 if ($todo.Count -gt $MaxNew) { Write-Host "Жанры получены не для всех ($($todo.Count - $MaxNew) осталось) — запусти ещё раз позже." -ForegroundColor Yellow }
