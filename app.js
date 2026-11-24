@@ -730,6 +730,13 @@ $('#qrBtn').onclick = async () => {
   } catch { alert('Ссылка с настройками повреждена.'); }
 })();
 
+// клик по затемнению вокруг окна — закрыть (для всех окон)
+for (const dlg of document.querySelectorAll('dialog')) dlg.addEventListener('mousedown', e => {
+  if (e.target !== dlg) return;
+  const r = dlg.getBoundingClientRect();
+  if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dlg.close();
+});
+
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 pull();
 if (!cfg.repo && !LS.get('helped', false)) { LS.set('helped', true); $('#help').showModal(); }
