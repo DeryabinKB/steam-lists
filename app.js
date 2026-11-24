@@ -88,9 +88,14 @@ function setLibrary(lib) {
   for (const g of lib?.games || []) state.games.set(g.appid, g);
   // игры из списков, которых нет в библиотеке (ещё не синкнули) — заглушки
   for (const l of state.lists) for (const id of l.items || []) if (!state.games.has(id)) state.games.set(id, { appid: id, name: `App ${id}`, stub: true });
-  const cnt = {};
-  for (const g of state.games.values()) for (const t of [...(g.genres || []), ...(g.tags || [])]) cnt[t] = (cnt[t] || 0) + 1;
-  state.topTags = Object.entries(cnt).sort((a, b) => b[1] - a[1]).slice(0, 40).map(e => e[0]);
+  // жанры (рус., из магазина) и теги (англ., SteamSpy) отдельно; теги-дубли жанров убираем
+  const gc = {}, tc = {};
+  for (const g of state.games.values()) {
+    for (const t of g.genres || []) gc[t] = (gc[t] || 0) + 1;
+    for (const t of g.tags || []) if (!GENRE_EN.has(norm(t))) tc[t] = (tc[t] || 0) + 1;
+  }
+  const top = (o, n) => Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, n);
+  state.topGenres = top(gc, 30); state.topTags = top(tc, 80);
   $('#libInfo').textContent = lib ? `Библиотека: ${lib.games.length} игр, обновлена ${new Date(lib.updated).toLocaleString()}` : 'Библиотека ещё не загружена.';
 }
 
@@ -110,6 +115,7 @@ function parseQuery(q) {
 }
 const cmp = (a, op, b) => op === '<' ? a < b : op === '>' ? a > b : op === '<=' ? a <= b : op === '>=' ? a >= b : a === b;
 const achPct = g => g.ach && g.ach[1] ? Math.round(100 * g.ach[0] / g.ach[1]) : null;
+const GENRE_EN = new Set(['action','adventure','indie','rpg','strategy','simulation','casual','sports','racing','massivelymultiplayer','earlyaccess','freetoplay','singleplayer','multiplayer']);
 const norm = x => String(x).toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 function match(g, f, noChips) {
   const nm = (g.name || '').toLowerCase();
@@ -182,11 +188,29 @@ function render() {
   const sadd = document.createElement('button'); sadd.className = 'add'; sadd.textContent = '⚡ Из текущего поиска'; sadd.dataset.e = 'smart';
   side.append(sadd);
 
-  const tb = $('#tagbar'); tb.innerHTML = '';
-  for (const t of state.topTags || []) {
-    const s = document.createElement('span'); s.textContent = t; if (state.tags.has(t)) s.className = 'on';
-    s.onclick = () => { state.tags.has(t) ? state.tags.delete(t) : state.tags.add(t); render(); };
-    tb.append(s);
+  const tb = $('#tagbar'); tb.innerHTML = ''; tb.classList.toggle('open', !!state.tagsOpen);
+  const row = (label, items, cls) => {
+    const r = document.createElement('div'); r.className = 'trow ' + cls;
+    r.innerHTML = `<span class="lab">${label}</span><div class="chs"></div>`;
+    const box = r.querySelector('.chs');
+    // выбранные — первыми, чтобы были видны и в свёрнутом виде
+    const sorted = [...items].sort((a, b) => state.tags.has(b[0]) - state.tags.has(a[0]));
+    for (const [t, n] of sorted) {
+      const s = document.createElement('span'); s.className = 'ch' + (state.tags.has(t) ? ' on' : '');
+      s.innerHTML = `<i></i><small>${n}</small>`; s.querySelector('i').textContent = t;
+      s.onclick = () => { state.tags.has(t) ? state.tags.delete(t) : state.tags.add(t); render(); };
+      box.append(s);
+    }
+    tb.append(r);
+  };
+  if (state.topGenres?.length) row('Жанры', state.topGenres, 'gen');
+  if (state.topTags?.length) row('Теги', state.topTags, 'tag');
+  if (state.topGenres?.length || state.topTags?.length) {
+    const ctl = document.createElement('div'); ctl.className = 'tctl';
+    ctl.innerHTML = `<button class="more">${state.tagsOpen ? 'Свернуть ▴' : 'Все жанры и теги ▾'}</button>${state.tags.size ? `<button class="clr">✕ Сбросить (${state.tags.size})</button>` : ''}`;
+    ctl.querySelector('.more').onclick = () => { state.tagsOpen = !state.tagsOpen; render(); };
+    if (state.tags.size) ctl.querySelector('.clr').onclick = () => { state.tags.clear(); render(); };
+    tb.append(ctl);
   }
 
   const ids = visible(); state.visible = ids;
