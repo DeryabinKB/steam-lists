@@ -65,9 +65,16 @@ function AskSecret($prompt) {
 $bad = $false; if (Test-Path $cfgPath) { $c0 = Get-Content $cfgPath -Raw | ConvertFrom-Json; $bad = !$c0.repo -or !$c0.token }
 if ($Reset -or $bad -or !(Test-Path $cfgPath)) {
   Write-Host "Первичная настройка Steam Lists" -ForegroundColor Cyan
-  do { $repo = (Read-Host "Репо с данными (логин/steam-lists-data)").Trim() -replace '^https://github\.com/', '' -replace '/$', '' } while ($repo -notmatch '^[\w.-]+/[\w.-]+$')
+  Write-Host "Проще всего: в приложении ⚙ → «📋 Скопировать ссылку настроек» и вставь сюда ссылку (правой кнопкой). Или Enter — ввести репо и токен вручную."
+  $link = (AskSecret "Ссылка настроек (ввод скрыт)").Trim()
+  $repo = ''; $tok = ''
+  try { $link = [Uri]::UnescapeDataString($link) } catch {}
+  if ($link -match '#s=([^~\s]+)~([^~\s]+)~') { $repo = $Matches[1]; $tok = $Matches[2]; Write-Host "Из ссылки: репо $repo" }
+  if (!$repo) { do { $repo = (Read-Host "Репо с данными (логин/steam-lists-data)").Trim() -replace '^https://github\.com/', '' -replace '/$', '' } while ($repo -notmatch '^[\w.-]+/[\w.-]+$') }
+  $first = $true
   do {
-    $tok = (AskSecret "Токен GitHub для репо данных (ввод скрыт, вставка — правой кнопкой)").Trim()
+    if (!$first -or !$tok) { $tok = (AskSecret "Токен GitHub для репо данных (ввод скрыт, вставка — правой кнопкой)").Trim() }
+    $first = $false
     $ok = $false
     if ($tok) { try { Invoke-RestMethod -Uri "https://api.github.com/repos/$repo" -Headers @{ Authorization = "Bearer $tok"; 'User-Agent' = 'steam-lists' } | Out-Null; $ok = $true } catch { Write-Host "Токен не подходит к $repo, попробуй ещё раз." -ForegroundColor Red } }
   } while (!$ok)

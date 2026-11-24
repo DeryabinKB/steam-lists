@@ -76,7 +76,8 @@
   </div>
   <p class="hint" id="libInfo"></p>
   <hr>
-  <button type="button" id="qrBtn">📱 Перенести настройки на телефон (QR)</button>
+  <div class="row"><button type="button" id="qrBtn">📱 На телефон (QR)</button><button type="button" id="copyLink">📋 Скопировать ссылку настроек</button></div>
+  <p class="hint" id="copyHint" hidden>Ссылка скопирована. На другом устройстве (ПК или телефон) открой её в браузере (или вставь в ⚙ → «Ссылка из QR»), а при первом запуске <code>sync.cmd</code> вставь её же вместо репо и токена. В ссылке твой токен: передавай только себе (флешка, менеджер паролей), не в общие чаты.</p>
   <div id="qrBox" hidden><p class="hint">Наведи камеру телефона и открой ссылку. В QR твой токен: никому не показывай и не фоткай.</p><div id="qr"></div></div>
 </form></dialog>
 
