@@ -160,7 +160,7 @@ dialog#game{padding:0;max-width:820px;width:94vw;max-height:92vh;overflow:auto;b
 .ar img{width:44px;height:44px;border-radius:4px;flex:none;background:#0b1118}
 .ar:not(.done) img{opacity:.55}
 .ar.done{background:#3d6a8f22}
-.ar .at{flex:1;min-width:0;overflow-wrap:anywhere}.ar .at b{display:block;color:#fff;font-weight:500}
+.ar .at{flex:1;min-width:0}.ar .at b{display:block;color:#fff;font-weight:500}
 .ar .at span{font-size:12px;color:var(--dim)}
 .ar .ap{width:110px;text-align:right;font-size:13px;color:var(--dim);flex:none}
 .ar .ap small{display:block;font-size:11px;color:#8fc76a}
@@ -174,15 +174,7 @@ dialog#game{padding:0;max-width:820px;width:94vw;max-height:92vh;overflow:auto;b
 @media (max-width:700px){
   #steamBtn,#pcBtn{display:none}
   .ghero{height:150px}.gtitle h3{font-size:20px}
-  .gbody{padding-inline:12px}
-  .af{flex-wrap:wrap}
-  .af button,.ahead select{min-height:36px}
-  .ar{display:grid;grid-template-columns:36px minmax(0,1fr) 44px;column-gap:8px;row-gap:4px;align-items:start}
-  .ar img{grid-row:1/span 2;width:36px;height:36px}
-  .ar .ap{grid-column:2;width:auto;text-align:left}
-  .ar .ap small{display:inline;margin-inline-start:6px}
-  .ar .ap small:empty{display:none}
-  .ar .pin{grid-column:3;grid-row:1/span 2;min-height:44px}
+  .ar .ap{width:64px}
 }
 #syncBtn.spin{animation:spin 1s linear infinite;pointer-events:none}
 @keyframes spin{to{transform:rotate(360deg)}}

@@ -554,7 +554,6 @@ function drawGame(g, d) {
       <div class="glinks"><a class="primary" href="steam://run/${id}">▶ Играть</a>
         ${link(`https://store.steampowered.com/app/${id}`, 'Магазин')}
         ${link(steamid ? `https://steamcommunity.com/profiles/${steamid}/stats/${id}/achievements` : `https://steamcommunity.com/stats/${id}/achievements`, 'Ачивки в Steam')}
-        ${link(`https://steamcommunity.com/app/${id}`, 'Сообщество Steam')}
         ${link(`https://steamcommunity.com/app/${id}/guides`, 'Гайды')}
         ${link(`https://steamdb.info/app/${id}/`, 'SteamDB')}
         ${link(`https://www.pcgamingwiki.com/api/appid.php?appid=${id}`, 'PCGamingWiki')}
