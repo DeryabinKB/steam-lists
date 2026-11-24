@@ -116,6 +116,7 @@ if ($Export) {
   foreach ($p in $raw) { $byKey[$p[0]] = $p[1]; [void]$out.Add($p) }
   $listsChanged = $false; $n = 0
   foreach ($l in $lf.data.lists) {
+    if ($null -ne $l.query) { continue }   # умные списки в Steam не выгружаем
     $cid = $l.steamId
     if (!$cid -or $cid -eq 'favorite') { if ($cid -ne 'favorite') { $cid = 'uc-' + -join ((48..57) + (97..122) | Get-Random -Count 12 | ForEach-Object { [char]$_ }); $l | Add-Member -Force steamId $cid; $listsChanged = $true } }
     $key = "user-collections.$cid"

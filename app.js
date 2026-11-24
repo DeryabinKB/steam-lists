@@ -87,7 +87,7 @@ function setLibrary(lib) {
   state.games.clear();
   for (const g of lib?.games || []) state.games.set(g.appid, g);
   // игры из списков, которых нет в библиотеке (ещё не синкнули) — заглушки
-  for (const l of state.lists) for (const id of l.items) if (!state.games.has(id)) state.games.set(id, { appid: id, name: `App ${id}`, stub: true });
+  for (const l of state.lists) for (const id of l.items || []) if (!state.games.has(id)) state.games.set(id, { appid: id, name: `App ${id}`, stub: true });
   const cnt = {};
   for (const g of state.games.values()) for (const t of [...(g.genres || []), ...(g.tags || [])]) cnt[t] = (cnt[t] || 0) + 1;
   state.topTags = Object.entries(cnt).sort((a, b) => b[1] - a[1]).slice(0, 40).map(e => e[0]);
@@ -97,7 +97,7 @@ function setLibrary(lib) {
 /* ---------- filter / sort ---------- */
 function parseQuery(q) {
   const f = { text: [], tag: [], genre: [], cond: [] };
-  for (const tok of q.match(/"[^"]+"|\S+/g) || []) {
+  for (const tok of q.match(/\w+:"[^"]+"|"[^"]+"|\S+/g) || []) {
     const t = tok.replace(/"/g, '');
     let m;
     if ((m = t.match(/^(tag|genre):(.+)$/i))) f[m[1].toLowerCase()].push(m[2].toLowerCase());
@@ -110,26 +110,32 @@ function parseQuery(q) {
 }
 const cmp = (a, op, b) => op === '<' ? a < b : op === '>' ? a > b : op === '<=' ? a <= b : op === '>=' ? a >= b : a === b;
 const achPct = g => g.ach && g.ach[1] ? Math.round(100 * g.ach[0] / g.ach[1]) : null;
-function match(g, f) {
+const norm = x => String(x).toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+function match(g, f, noChips) {
   const nm = (g.name || '').toLowerCase();
   if (f.text.some(t => !nm.includes(t))) return false;
-  const tags = (g.tags || []).map(x => x.toLowerCase()), gen = (g.genres || []).map(x => x.toLowerCase());
-  if (f.tag.some(t => !tags.some(x => x.includes(t)) && !gen.some(x => x.includes(t)))) return false;
-  if (f.genre.some(t => !gen.some(x => x.includes(t)))) return false;
-  for (const t of state.tags) if (!tags.includes(t.toLowerCase()) && !gen.includes(t.toLowerCase())) return false;
+  const tags = (g.tags || []).map(norm), gen = (g.genres || []).map(norm);
+  if (f.tag.some(t => !tags.some(x => x.includes(norm(t))) && !gen.some(x => x.includes(norm(t))))) return false;
+  if (f.genre.some(t => !gen.some(x => x.includes(norm(t))))) return false;
+  if (!noChips) for (const t of state.tags) if (!tags.includes(norm(t)) && !gen.includes(norm(t))) return false;
   for (const [k, op, v] of f.cond) {
     const x = k === 'h' ? (g.hours || 0) : achPct(g);
     if (x === null || !cmp(x, op, v)) return false;
   }
   return true;
 }
+const isSmart = l => !!(l && l.query != null);
+const manual = () => state.lists.filter(l => !isSmart(l));
+function smartIds(l) { const f = parseQuery(l.query); return [...state.games.keys()].filter(id => match(state.games.get(id), f, true)); }
 function currentIds() {
-  const inAny = new Set(state.lists.flatMap(l => l.items));
+  const inAny = new Set(manual().flatMap(l => l.items));
+  const sm = state.lists.find(l => l.id === state.view && isSmart(l));
+  if (sm) return smartIds(sm);
   if (state.view === 'all') return [...state.games.keys()];
   if (state.view === 'none') return [...state.games.keys()].filter(id => !inAny.has(id));
   return curList()?.items.slice() || [];
 }
-const curList = () => state.lists.find(l => l.id === state.view);
+const curList = () => state.lists.find(l => l.id === state.view && !isSmart(l));
 function visible() {
   const f = parseQuery($('#q').value);
   let ids = currentIds().filter(id => state.games.has(id) && match(state.games.get(id), f));
@@ -146,7 +152,7 @@ function visible() {
 
 /* ---------- render ---------- */
 function render() {
-  const inAny = new Set(state.lists.flatMap(l => l.items));
+  const inAny = new Set(manual().flatMap(l => l.items));
   const side = $('#side'); side.innerHTML = '';
   const item = (id, name, n, editable) => {
     const d = document.createElement('div');
@@ -158,9 +164,11 @@ function render() {
   item('all', 'Вся библиотека', state.games.size);
   item('none', 'Без списка', [...state.games.keys()].filter(i => !inAny.has(i)).length);
   side.append(document.createElement('hr'));
-  state.lists.forEach((l, i) => item(l.id, `${i + 1}. ${l.name}`, l.items.length, true));
+  state.lists.forEach((l, i) => item(l.id, isSmart(l) ? `⚡ ${l.name}` : `${i + 1}. ${l.name}`, isSmart(l) ? smartIds(l).length : l.items.length, true));
   const add = document.createElement('button'); add.className = 'add'; add.textContent = '+ Новый список'; add.dataset.e = 'add';
   side.append(add);
+  const sadd = document.createElement('button'); sadd.className = 'add'; sadd.textContent = '⚡ Умный список из поиска'; sadd.dataset.e = 'smart';
+  side.append(sadd);
 
   const tb = $('#tagbar'); tb.innerHTML = '';
   for (const t of state.topTags || []) {
@@ -178,7 +186,7 @@ function render() {
     const g = state.games.get(id), p = achPct(g);
     const d = document.createElement('div');
     d.className = 'g' + (state.sel.has(id) ? ' sel' : ''); d.dataset.id = id; d.draggable = true;
-    const where = state.lists.filter(l => l.items.includes(id)).map(l => l.name);
+    const where = manual().filter(l => l.items.includes(id)).map(l => l.name);
     d.innerHTML = `<img loading="lazy" alt="" src="https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${id}/capsule_184x69.jpg" onerror="this.style.visibility='hidden'">
       <div class="t"><div class="nm"></div><div class="meta"></div>${p !== null ? `<div class="bar"><i style="width:${p}%"></i></div>` : ''}</div>
       <div class="num">${g.hours ? g.hours.toFixed(1) + ' ч' : '—'}${g.ach && g.ach[1] ? `<br>${g.ach[0]}/${g.ach[1]}` : ''}</div>
@@ -199,10 +207,10 @@ function render() {
 /* ---------- list operations ---------- */
 const uid = () => 'l' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 function moveTo(targetId, ids, copy) {
-  const t = state.lists.find(l => l.id === targetId); if (!t) return;
+  const t = state.lists.find(l => l.id === targetId); if (!t || isSmart(t)) return;
   const src = curList();
   if (!copy) {   // перенос: из текущего списка, а из «Вся библиотека» — из всех остальных списков
-    for (const l of src ? [src] : state.lists) if (l !== t) l.items = l.items.filter(i => !ids.includes(i));
+    for (const l of src ? [src] : manual()) if (l !== t) l.items = l.items.filter(i => !ids.includes(i));
   }
   for (const id of ids) if (!t.items.includes(id)) t.items.push(id);
   state.sel.clear(); changed(); render();
@@ -219,13 +227,24 @@ function pickList(title, cb) {
   const dlg = $('#pick'); $('#pickTitle').textContent = title;
   const box = $('#pickList'); box.innerHTML = '';
   state.lists.forEach((l, i) => {
-    if (l.id === state.view) return;
+    if (l.id === state.view || isSmart(l)) return;
     const b = document.createElement('button'); b.type = 'button'; b.textContent = `${i + 1}. ${l.name}`;
     b.onclick = () => { dlg.close(); cb(l.id); }; box.append(b);
   });
   const nb = document.createElement('button'); nb.type = 'button'; nb.textContent = '+ Новый список…';
   nb.onclick = () => { dlg.close(); const id = newList(); if (id) cb(id); }; box.append(nb);
   dlg.showModal();
+}
+function currentQuery() {
+  return [$('#q').value.trim(), ...[...state.tags].map(t => /\s/.test(t) ? `tag:"${t}"` : `tag:${t}`)].filter(Boolean).join(' ');
+}
+function newSmart() {
+  let q = currentQuery();
+  q = prompt('Фильтр умного списка (как в поиске). Примеры: tag:coop new · genre:RPG h>10 · ach<100 played', q);
+  if (q == null || !q.trim()) return;
+  const name = prompt('Название умного списка', q.trim()); if (!name) return;
+  const l = { id: uid(), name: name.trim(), query: q.trim() };
+  state.lists.push(l); state.view = l.id; $('#q').value = ''; state.tags.clear(); changed(); render();
 }
 function newList() {
   const name = prompt('Название списка'); if (!name) return null;
@@ -236,9 +255,14 @@ function newList() {
 $('#side').addEventListener('click', e => {
   const it = e.target.closest('.it'), ed = e.target.dataset.e;
   if (ed === 'add') return newList();
+  if (ed === 'smart') return newSmart();
   if (!it) return;
   const l = state.lists.find(x => x.id === it.dataset.id), i = state.lists.indexOf(l);
-  if (ed === 'ren') { const n = prompt('Новое название', l.name); if (n) { l.name = n.trim(); changed(); render(); } return; }
+  if (ed === 'ren') {
+    const n = prompt('Название', l.name); if (!n) return; l.name = n.trim();
+    if (isSmart(l)) { const q = prompt('Фильтр (как в поиске: tag:coop new h<1 …)', l.query); if (q != null) l.query = q.trim(); }
+    changed(); render(); return;
+  }
   if (ed === 'del') { if (confirm(`Удалить список «${l.name}»? Игры останутся в библиотеке.`)) { state.lists.splice(i, 1); if (state.view === l.id) state.view = 'all'; changed(); render(); } return; }
   if (ed === 'up') { if (i > 0) { state.lists.splice(i - 1, 0, state.lists.splice(i, 1)[0]); changed(); render(); } return; }
   state.view = it.dataset.id; state.sel.clear(); $('#side').classList.remove('open');
@@ -279,7 +303,7 @@ $('#list').addEventListener('dragstart', e => {
 });
 document.addEventListener('dragend', () => { dragIds = null; document.querySelectorAll('.drop,.before').forEach(x => x.classList.remove('drop', 'before')); });
 $('#side').addEventListener('dragover', e => {
-  const it = e.target.closest('.it'); if (!dragIds || !it || !state.lists.some(l => l.id === it.dataset.id)) return;
+  const it = e.target.closest('.it'); if (!dragIds || !it || !manual().some(l => l.id === it.dataset.id)) return;
   e.preventDefault(); e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move';
   document.querySelectorAll('.drop').forEach(x => x.classList.remove('drop')); it.classList.add('drop');
 });
@@ -321,7 +345,7 @@ $('#importSteam').onclick = async () => {
     if (!sc) return alert('Нет steam-collections.json. Запусти на ПК: steam-sync.ps1');
     let added = 0, upd = 0;
     for (const c of sc.collections) {
-      const l = state.lists.find(x => x.steamId === c.id) || state.lists.find(x => x.name === c.name);
+      const l = manual().find(x => x.steamId === c.id) || manual().find(x => x.name === c.name);
       if (l) { const before = l.items.length; for (const id of c.apps) if (!l.items.includes(id)) l.items.push(id); if (l.items.length > before) upd++; l.steamId = c.id; }
       else { state.lists.push({ id: uid(), name: c.name, steamId: c.id, items: c.apps.slice() }); added++; }
     }
