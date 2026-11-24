@@ -92,14 +92,13 @@ try {
   Set-ItemProperty "$cls\shell\open\command" -Name '(default)' -Value "`"$runCmd`" `"%1`""
 } catch { Write-Host "Не смог зарегистрировать кнопку приложения: $($_.Exception.Message)" -ForegroundColor Yellow }
 
-# ---------- ярлык приложения на рабочем столе (один раз) ----------
+# ---------- ярлык приложения с иконкой — в папке программы (рядом с tools) ----------
 try {
-  $lnk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Steam Lists.url'
-  if (!(Test-Path $lnk)) {
+  if ($PSScriptRoot -and ((Split-Path $PSScriptRoot -Leaf) -eq 'tools')) {
     $ico = Join-Path $dir 'icon.ico'
-    Invoke-WebRequest -UseBasicParsing -TimeoutSec 15 'https://deryabinkb.github.io/steam-lists/icon.ico' -OutFile $ico
+    if (!(Test-Path $ico)) { Invoke-WebRequest -UseBasicParsing -TimeoutSec 15 'https://deryabinkb.github.io/steam-lists/icon.ico' -OutFile $ico }
+    $lnk = Join-Path (Split-Path $PSScriptRoot) 'Steam Lists.url'
     [IO.File]::WriteAllText($lnk, "[InternetShortcut]`r`nURL=https://deryabinkb.github.io/steam-lists/`r`nIconFile=$ico`r`nIconIndex=0`r`n", [Text.Encoding]::Default)
-    Write-Host "На рабочем столе появился ярлык Steam Lists." -ForegroundColor Green
   }
 } catch {}
 
