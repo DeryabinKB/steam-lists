@@ -92,6 +92,17 @@ try {
   Set-ItemProperty "$cls\shell\open\command" -Name '(default)' -Value "`"$runCmd`" `"%1`""
 } catch { Write-Host "Не смог зарегистрировать кнопку приложения: $($_.Exception.Message)" -ForegroundColor Yellow }
 
+# ---------- ярлык приложения на рабочем столе (один раз) ----------
+try {
+  $lnk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Steam Lists.url'
+  if (!(Test-Path $lnk)) {
+    $ico = Join-Path $dir 'icon.ico'
+    Invoke-WebRequest -UseBasicParsing -TimeoutSec 15 'https://deryabinkb.github.io/steam-lists/icon.ico' -OutFile $ico
+    [IO.File]::WriteAllText($lnk, "[InternetShortcut]`r`nURL=https://deryabinkb.github.io/steam-lists/`r`nIconFile=$ico`r`nIconIndex=0`r`n", [Text.Encoding]::Default)
+    Write-Host "На рабочем столе появился ярлык Steam Lists." -ForegroundColor Green
+  }
+} catch {}
+
 function GhSend($method, $url, $obj) {
   Invoke-RestMethod -Method $method -Uri $url -Headers $ghHead -Body ($utf8.GetBytes(($obj | ConvertTo-Json -Depth 8 -Compress))) -ContentType 'application/json; charset=utf-8'
 }
